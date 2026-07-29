@@ -19,6 +19,10 @@ export const INTRO_FRAMES = 60;
 export const KO_FRAMES = 90;
 export const HITSTOP_FRAMES = 4;
 export const BACKGROUND_COUNT = 5;
+export const GROUND_SPEED = 3;
+// 空中速度 2 だと滞空~37Fで横~74px（体幅54px）しか進めず密着からしか飛び越えられない。
+// 回り込み（Ver.6）を実用にするため 2.5（横~93px）にしている
+export const AIR_SPEED = 2.5;
 
 // ----------------------------------------------------------------
 // キャラクター定義（現状は見た目のみの差分。能力値はまだ全キャラ共通）
@@ -90,10 +94,11 @@ export const CPU_PROBABILITIES = {
     ['idle', 0.15]
   ],
   close: [
-    ['punch', 0.4],
+    ['punch', 0.35],
     ['kick', 0.25],
     ['retreat', 0.2],
-    ['jump', 0.15]
+    ['jump', 0.1],
+    ['jumpForward', 0.1] // 近距離の前方ジャンプ＝飛び越えて裏に回る「めくり」狙い
   ],
   projectileDodge: 0.4
 } as const;
@@ -763,7 +768,7 @@ const updatePlayer = (
   state: GameState,
   options: FighterUpdateOptions
 ): void => {
-  const { fighter, opponent, input } = options;
+  const { fighter, input } = options;
   const direction = inputDirection(input);
   fighter.crouching = input.down && fighter.grounded;
 
@@ -787,13 +792,12 @@ const updatePlayer = (
   }
 
   if (fighter.attack === null && !fighter.crouching) {
-    fighter.vx = direction * (fighter.grounded ? 3 : 2);
+    fighter.vx = direction * (fighter.grounded ? GROUND_SPEED : AIR_SPEED);
     fighter.x += fighter.vx;
   } else {
     fighter.vx = 0;
   }
   fighter.x = Math.max(MIN_X, Math.min(MAX_X, fighter.x));
-  fighter.facing = directionToOpponent(fighter, opponent);
 };
 
 // 現在の aiAction を実行する。攻撃を開始できなければ approach にフォールバック、
@@ -834,18 +838,19 @@ const updateCpu = (
     fighter.blocking = true;
   }
 
-  fighter.vx = movement * (fighter.grounded ? 3 : 2);
+  fighter.vx = movement * (fighter.grounded ? GROUND_SPEED : AIR_SPEED);
   fighter.x = Math.max(MIN_X, Math.min(MAX_X, fighter.x + fighter.vx));
 };
 
 // プレイヤー/CPU 共通の更新。ヒットスタン中と攻撃モーション中は一切操作できない
-// （この制約は CPU にも同じように効く）
+// （この制約は CPU にも同じように効く）。
+// 振り向きは「接地・非攻撃・非ヒットスタン」のニュートラル時のみ＝
+// ジャンプ中・攻撃中は向きを固定し、相手を飛び越えた後は着地の瞬間に正対する（Ver.6）
 const updateFighter = (
   state: GameState,
   options: FighterUpdateOptions
 ): void => {
   const { fighter, opponent, input } = options;
-  fighter.facing = directionToOpponent(fighter, opponent);
   fighter.blocking = false;
   if (fighter.projectileCooldown > 0) {
     fighter.projectileCooldown -= 1;
@@ -873,15 +878,23 @@ const updateFighter = (
     updateCpu(state, fighter, opponent);
   }
   applyGravity(fighter);
+  if (fighter.grounded && fighter.attack === null) {
+    fighter.facing = directionToOpponent(fighter, opponent);
+  }
 };
 
 // ----------------------------------------------------------------
 // フィールド上のオブジェクト更新（体の押し戻し・弾・エフェクト・攻撃の進行）
 // ----------------------------------------------------------------
 
-// 2体が重なったら重なり分の半分ずつ左右に押し戻す（めり込み防止）
+// 2体が重なったら重なり分の半分ずつ左右に押し戻す（めり込み防止）。
+// 体当たり判定は両者接地時のみ＝ジャンプ中は相手を飛び越えて裏へ回り込める（Ver.6）。
+// 相手の真上に着地した場合もこの処理が着地フレームで左右に分離する
 const resolvePushback = (state: GameState): void => {
   if (state.player === null || state.cpu === null) {
+    return;
+  }
+  if (!state.player.grounded || !state.cpu.grounded) {
     return;
   }
   const first = getHitbox(state.player);

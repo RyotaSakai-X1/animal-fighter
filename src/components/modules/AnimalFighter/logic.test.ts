@@ -13,12 +13,14 @@ import {
   getHitbox,
   getPoseImagePath,
   isGuarding,
+  rectanglesOverlap,
   SELECT_SLOT_COUNT,
   setAssetStatus,
   stepCpuIndex,
   type Fighter,
   type GameInput,
-  type GameKey
+  type GameKey,
+  type GameState
 } from './logic';
 
 const ryuDefinition = CHARACTER_DEFINITIONS[0];
@@ -60,6 +62,36 @@ const startFight = () => {
   const cpuSelect = advanceGame(select, createInput(['Enter']));
   const stageSelect = advanceGame(cpuSelect, createInput(['Enter']));
   return advanceGame(stageSelect, createInput(['Enter']));
+};
+
+// intro をスキップして戦闘可能な状態にし、CPU は動かないよう固定する
+const startActiveFight = (
+  playerOverrides: Partial<Fighter>,
+  cpuOverrides: Partial<Fighter>
+): GameState => {
+  const fight = startFight();
+  return {
+    ...fight,
+    roundPhase: 'active' as const,
+    player:
+      fight.player === null ? null : { ...fight.player, ...playerOverrides },
+    cpu:
+      fight.cpu === null
+        ? null
+        : {
+            ...fight.cpu,
+            aiAction: 'idle' as const,
+            aiFrames: 9999,
+            ...cpuOverrides
+          }
+  };
+};
+
+const getFighters = (state: GameState): { player: Fighter; cpu: Fighter } => {
+  if (state.player === null || state.cpu === null) {
+    throw new Error('Fight state is missing fighters.');
+  }
+  return { player: state.player, cpu: state.cpu };
 };
 
 describe('Animal Fighter image selection', () => {
@@ -389,6 +421,65 @@ describe('Animal Fighter game logic', () => {
       expect(state.screen).toBe('fight');
       expect(state.cpu?.id).not.toBe(state.player?.id);
     }
+  });
+
+  test('jumps over the opponent, lands behind, and both fighters turn around', () => {
+    let state = startActiveFight({ x: 300 }, { x: 354 });
+    state = advanceGame(state, { ...createInput(['ArrowUp']), right: true });
+    for (let frame = 0; frame < 45; frame += 1) {
+      state = advanceGame(state, { ...createInput(), right: true });
+    }
+
+    const { player, cpu } = getFighters(state);
+    expect(player.grounded).toBe(true);
+    expect(player.x).toBeGreaterThan(cpu.x);
+    expect(player.facing).toBe(-1);
+    expect(cpu.facing).toBe(1);
+  });
+
+  test('grounded fighters cannot walk through each other', () => {
+    let state = startActiveFight({ x: 300 }, { x: 354 });
+    for (let frame = 0; frame < 60; frame += 1) {
+      state = advanceGame(state, { ...createInput(), right: true });
+    }
+
+    const { player, cpu } = getFighters(state);
+    expect(player.grounded).toBe(true);
+    expect(player.x).toBeLessThan(cpu.x);
+  });
+
+  test('keeps facing locked while an attack is active', () => {
+    let state = startActiveFight({ x: 400 }, { x: 500 });
+    state = advanceGame(state, createInput(['KeyZ']));
+    expect(state.player?.attack).not.toBeNull();
+
+    state = {
+      ...state,
+      cpu: state.cpu === null ? null : { ...state.cpu, x: 200 }
+    };
+    state = advanceGame(state, createInput());
+    expect(state.player?.attack).not.toBeNull();
+    expect(state.player?.facing).toBe(1);
+
+    for (let frame = 0; frame < 25; frame += 1) {
+      state = advanceGame(state, createInput());
+    }
+    expect(state.player?.attack).toBeNull();
+    expect(state.player?.facing).toBe(-1);
+  });
+
+  test('separates fighters when landing directly on the opponent', () => {
+    let state = startActiveFight(
+      { x: 354, y: 300, grounded: false, vy: 8 },
+      { x: 354 }
+    );
+    for (let frame = 0; frame < 12; frame += 1) {
+      state = advanceGame(state, createInput());
+    }
+
+    const { player, cpu } = getFighters(state);
+    expect(player.grounded).toBe(true);
+    expect(rectanglesOverlap(getHitbox(player), getHitbox(cpu))).toBe(false);
   });
 
   test('keeps the Ver.1 attack frame data and crouch hitbox', () => {

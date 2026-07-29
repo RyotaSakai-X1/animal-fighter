@@ -25,7 +25,7 @@ export const AnimalFighter: FC = () => {
           ANIMAL FIGHTER
         </h1>
         <p className='mt-2 text-sm text-slate-300'>
-          ポーズ差分画像で遊ぶ ANIMAL FIGHTER Ver.5
+          ポーズ差分画像で遊ぶ ANIMAL FIGHTER Ver.6
         </p>
       </header>
 
