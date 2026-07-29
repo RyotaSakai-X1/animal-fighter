@@ -20,9 +20,11 @@ export const KO_FRAMES = 90;
 export const HITSTOP_FRAMES = 4;
 export const BACKGROUND_COUNT = 5;
 export const GROUND_SPEED = 3;
-// 空中速度 2 だと滞空~37Fで横~74px（体幅54px）しか進めず密着からしか飛び越えられない。
-// 回り込み（Ver.6）を実用にするため 2.5（横~93px）にしている
+// 空中横速度。滞空 ~43F × 2.5 ≒ 横107px 動けるので体幅 54px を余裕を持って飛び越えられる
 export const AIR_SPEED = 2.5;
+// ジャンプ初速。頂点の高さ ~161px となり、立ち状態の相手（やられ判定の高さ 130px）を
+// 足元が確実に越えられる。-13 だと頂点 ~121px で相手の頭に引っかかっていた
+export const JUMP_VELOCITY = -15;
 
 // ----------------------------------------------------------------
 // キャラクター定義（現状は見た目のみの差分。能力値はまだ全キャラ共通）
@@ -777,7 +779,7 @@ const updatePlayer = (
     fighter.grounded &&
     !fighter.crouching
   ) {
-    fighter.vy = -13;
+    fighter.vy = JUMP_VELOCITY;
     fighter.grounded = false;
   }
 
@@ -824,7 +826,7 @@ const updateCpu = (
 
   if (action === 'jump' || action === 'jumpForward') {
     if (fighter.grounded) {
-      fighter.vy = -13;
+      fighter.vy = JUMP_VELOCITY;
       fighter.grounded = false;
     }
   }

@@ -12,6 +12,7 @@ import {
   getInitialCpuIndex,
   getHitbox,
   getPoseImagePath,
+  GROUND_Y,
   isGuarding,
   rectanglesOverlap,
   SELECT_SLOT_COUNT,
@@ -423,10 +424,24 @@ describe('Animal Fighter game logic', () => {
     }
   });
 
+  test('jump arc clears the height of a standing opponent', () => {
+    let state = startActiveFight({ x: 300 }, { x: 700 });
+    state = advanceGame(state, createInput(['ArrowUp']));
+    let apexY = GROUND_Y;
+    for (let frame = 0; frame < 50; frame += 1) {
+      state = advanceGame(state, createInput());
+      apexY = Math.min(apexY, state.player?.y ?? GROUND_Y);
+    }
+
+    const { player, cpu } = getFighters(state);
+    expect(player.grounded).toBe(true);
+    expect(apexY).toBeLessThan(getHitbox(cpu).top);
+  });
+
   test('jumps over the opponent, lands behind, and both fighters turn around', () => {
     let state = startActiveFight({ x: 300 }, { x: 354 });
     state = advanceGame(state, { ...createInput(['ArrowUp']), right: true });
-    for (let frame = 0; frame < 45; frame += 1) {
+    for (let frame = 0; frame < 50; frame += 1) {
       state = advanceGame(state, { ...createInput(), right: true });
     }
 
