@@ -1,3 +1,12 @@
+// ANIMAL FIGHTER のゲームロジック本体。
+// DOM / Canvas に依存しない純関数のみで構成され、唯一の入口 advanceGame() が
+// 「現在の状態 + 1フレーム分の入力 → 次の状態」を返す。
+// 描画・キー入力・requestAnimationFrame の配線は useAnimalFighter.ts が担当する。
+
+// ----------------------------------------------------------------
+// 基本定数（座標は canvas 内部解像度 800x450、時間は 60fps のフレーム数）
+// ----------------------------------------------------------------
+
 export const CANVAS_WIDTH = 800;
 export const CANVAS_HEIGHT = 450;
 export const GROUND_Y = 400;
@@ -10,6 +19,10 @@ export const INTRO_FRAMES = 60;
 export const KO_FRAMES = 90;
 export const HITSTOP_FRAMES = 4;
 export const BACKGROUND_COUNT = 5;
+
+// ----------------------------------------------------------------
+// キャラクター定義（現状は見た目のみの差分。能力値はまだ全キャラ共通）
+// ----------------------------------------------------------------
 
 export const CHARACTER_IDS = [
   'ryu',
@@ -46,6 +59,11 @@ export const CHARACTER_DEFINITIONS: readonly CharacterDefinition[] = [
 export const SELECT_SLOT_COUNT = 10;
 export const SELECT_COLUMNS = 5;
 
+// ----------------------------------------------------------------
+// 攻撃のフレームデータ（全キャラ共通）
+// startup=発生, active=持続, recovery=硬直（単位: フレーム）, reach=前方への判定距離(px)
+// ----------------------------------------------------------------
+
 export const ATTACKS = {
   punch: { startup: 6, active: 4, recovery: 10, damage: 8, reach: 55 },
   kick: { startup: 10, active: 5, recovery: 16, damage: 13, reach: 75 },
@@ -53,6 +71,11 @@ export const ATTACKS = {
 } as const;
 
 export type AttackType = keyof typeof ATTACKS;
+
+// ----------------------------------------------------------------
+// CPU の行動抽選テーブル（プレイヤーとの距離帯ごとに重み付き抽選、各表の合計は 1.0）
+// 難易度・性格の調整はこの数値をいじる
+// ----------------------------------------------------------------
 
 export const CPU_PROBABILITIES = {
   far: [
@@ -84,6 +107,10 @@ export type CpuAction =
   | 'kick'
   | 'retreat'
   | 'jump';
+
+// ----------------------------------------------------------------
+// 型定義（ファイター・画面・入力・ゲーム全体の状態）
+// ----------------------------------------------------------------
 
 export type AttackState = {
   type: AttackType;
@@ -199,11 +226,16 @@ export const EMPTY_INPUT: InputState = {
   confirm: false
 };
 
+// ----------------------------------------------------------------
+// 状態の生成と複製
+// ----------------------------------------------------------------
+
 const cloneFighter = (fighter: Fighter): Fighter => ({
   ...fighter,
   attack: fighter.attack === null ? null : { ...fighter.attack }
 });
 
+// advanceGame が毎フレーム最初に呼ぶ複製。events は「そのフレームで起きた効果音イベント」なので空で始める
 const cloneState = (state: GameState): GameState => ({
   ...state,
   player: state.player === null ? null : cloneFighter(state.player),
@@ -273,6 +305,7 @@ const createFighter = (id: CharacterId, isPlayer: boolean): Fighter => ({
   aiFrames: 1
 });
 
+// ラウンド間の初期化。createFighter と違い roundWins を持ち越す
 const resetFighter = (
   fighter: Fighter,
   x: number,
@@ -316,9 +349,15 @@ const startRound = (state: GameState): GameState => {
   };
 };
 
+// ----------------------------------------------------------------
+// 選択画面のカーソル操作（CPU 選択は P1 と同じキャラ＝ミラーマッチを避ける）
+// ----------------------------------------------------------------
+
 export const getInitialCpuIndex = (playerIndex: number): number =>
   (playerIndex + 1) % CHARACTER_DEFINITIONS.length;
 
+// CPU 選択カーソルを delta 分移動（±1=左右, ±SELECT_COLUMNS=上下）。
+// 移動先が P1 と重なる場合は同方向へもう一度進める（上下移動では結果的にその場に留まる）
 export const stepCpuIndex = (
   currentIndex: number,
   playerIndex: number,
@@ -332,6 +371,7 @@ export const stepCpuIndex = (
   return next;
 };
 
+// ステージ選択で決定 → 両ファイターを生成して対戦開始
 const beginMatch = (state: GameState): GameState => {
   const playerDefinition = CHARACTER_DEFINITIONS[state.selectedIndex];
   const cpuDefinition = CHARACTER_DEFINITIONS[state.cpuSelectedIndex];
@@ -363,6 +403,10 @@ const resetToTitle = (state: GameState): GameState => ({
   guardEffects: []
 });
 
+// ----------------------------------------------------------------
+// 当たり判定と幾何ヘルパー
+// ----------------------------------------------------------------
+
 const inputDirection = (input: InputState): -1 | 0 | 1 => {
   if (input.left === input.right) {
     return 0;
@@ -387,6 +431,7 @@ export type Hitbox = {
   bottom: number;
 };
 
+// やられ判定の矩形。しゃがみで高さが半分になる
 export const getHitbox = (fighter: Fighter): Hitbox => {
   const height = fighter.crouching ? 65 : 130;
   const width = 54;
@@ -404,6 +449,7 @@ export const rectanglesOverlap = (first: Hitbox, second: Hitbox): boolean =>
   first.top < second.bottom &&
   first.bottom > second.top;
 
+// ガード判定。プレイヤーは「地上で相手と逆方向に入力」、CPU は retreat 中の blocking フラグ
 export const isGuarding = (
   target: Fighter,
   attacker: Fighter,
@@ -419,11 +465,16 @@ export const isGuarding = (
   return inputDirection(input) === awayFromOpponent;
 };
 
+// ----------------------------------------------------------------
+// 攻撃システム（開始条件 → 発生/持続/硬直の進行 → ヒット解決）
+// ----------------------------------------------------------------
+
 const hasProjectileFor = (state: GameState, fighter: Fighter): boolean =>
   state.projectiles.some(
     (projectile) => projectile.owner === fighter.id && projectile.onScreen
   );
 
+// 攻撃を開始できたら true。攻撃中・硬直中・空中、飛び道具は画面内残存/クールダウン中なら不可
 const startAttack = (
   state: GameState,
   fighter: Fighter,
@@ -453,6 +504,7 @@ const startAttack = (
   return true;
 };
 
+// 攻撃判定が出ている（発生後〜持続終了前の）フレームか
 export const attackIsActive = (attack: AttackState): boolean => {
   const settings = ATTACKS[attack.type];
   return (
@@ -462,6 +514,7 @@ export const attackIsActive = (attack: AttackState): boolean => {
   );
 };
 
+// 打撃の攻撃判定矩形。体の矩形を向いている方向へ reach 分伸ばす（飛び道具は別処理なので null）
 const getAttackBox = (fighter: Fighter, attack: AttackState): Hitbox | null => {
   const settings = ATTACKS[attack.type];
   if (settings === undefined || attack.type === 'projectile') {
@@ -502,6 +555,8 @@ type HitOptions = {
   projectileHit: boolean;
 };
 
+// ヒット/ガードの共通処理。ガードなら 1/4 ダメージ（最低1）+ 小ノックバック、
+// 素通しならヒットスタン付与。どちらもヒットストップで全体を一瞬止める
 const applyHit = (state: GameState, options: HitOptions): void => {
   const { attacker, target, damage, contactX, contactY, projectileHit } =
     options;
@@ -531,6 +586,10 @@ const applyHit = (state: GameState, options: HitOptions): void => {
   }
   state.hitStopFrames = HITSTOP_FRAMES;
 };
+
+// ----------------------------------------------------------------
+// 飛び道具とヒット解決
+// ----------------------------------------------------------------
 
 const spawnProjectile = (state: GameState, fighter: Fighter): void => {
   const direction = fighter.facing;
@@ -572,6 +631,8 @@ const getFighter = (state: GameState, id: CharacterId): Fighter | null => {
   return null;
 };
 
+// 進行中の攻撃を解決する。打撃は持続中に1回だけヒット判定（hasHit で多段防止）、
+// 飛び道具は発生フレームで弾を生成する
 const resolveAttacks = (
   state: GameState,
   attacker: Fighter,
@@ -615,6 +676,12 @@ const resolveAttacks = (
   }
 };
 
+// ----------------------------------------------------------------
+// CPU 思考ルーチン（学習・先読みなしの確率ドリブン）
+// ----------------------------------------------------------------
+
+// 次の行動を抽選する。飛び道具が近づいていれば一定確率で回避ジャンプ、
+// それ以外は距離帯（far/mid/close）のテーブルからルーレット選択
 const chooseCpuAction = (state: GameState, random: () => number): CpuAction => {
   if (state.player === null || state.cpu === null) {
     return 'idle';
@@ -654,6 +721,7 @@ const chooseCpuAction = (state: GameState, random: () => number): CpuAction => {
   return (fallback?.[0] ?? 'idle') as CpuAction;
 };
 
+// 20〜40 フレーム（約0.3〜0.7秒）ごとに行動を再抽選し、決めた行動はその間持続させる
 const updateCpuIntent = (state: GameState, random: () => number): void => {
   if (state.cpu === null) {
     return;
@@ -664,6 +732,10 @@ const updateCpuIntent = (state: GameState, random: () => number): void => {
     state.cpu.aiFrames = 30 + Math.floor(random() * 21) - 10;
   }
 };
+
+// ----------------------------------------------------------------
+// ファイターの毎フレーム更新（プレイヤー=キー入力、CPU=aiAction の実行）
+// ----------------------------------------------------------------
 
 const applyGravity = (fighter: Fighter): void => {
   if (fighter.grounded) {
@@ -686,6 +758,7 @@ type FighterUpdateOptions = {
   input: GameInput;
 };
 
+// キー入力を移動・ジャンプ・攻撃開始に変換する
 const updatePlayer = (
   state: GameState,
   options: FighterUpdateOptions
@@ -723,6 +796,8 @@ const updatePlayer = (
   fighter.facing = directionToOpponent(fighter, opponent);
 };
 
+// 現在の aiAction を実行する。攻撃を開始できなければ approach にフォールバック、
+// retreat は後退しながらガード（blocking）になる。移動速度はプレイヤーと同一
 const updateCpu = (
   state: GameState,
   fighter: Fighter,
@@ -763,6 +838,8 @@ const updateCpu = (
   fighter.x = Math.max(MIN_X, Math.min(MAX_X, fighter.x + fighter.vx));
 };
 
+// プレイヤー/CPU 共通の更新。ヒットスタン中と攻撃モーション中は一切操作できない
+// （この制約は CPU にも同じように効く）
 const updateFighter = (
   state: GameState,
   options: FighterUpdateOptions
@@ -798,6 +875,11 @@ const updateFighter = (
   applyGravity(fighter);
 };
 
+// ----------------------------------------------------------------
+// フィールド上のオブジェクト更新（体の押し戻し・弾・エフェクト・攻撃の進行）
+// ----------------------------------------------------------------
+
+// 2体が重なったら重なり分の半分ずつ左右に押し戻す（めり込み防止）
 const resolvePushback = (state: GameState): void => {
   if (state.player === null || state.cpu === null) {
     return;
@@ -821,6 +903,7 @@ const resolvePushback = (state: GameState): void => {
   }
 };
 
+// 弾の移動・被弾判定・画面外の掃除
 const updateProjectiles = (state: GameState): void => {
   if (state.player === null || state.cpu === null) {
     return;
@@ -872,6 +955,7 @@ const updateEffects = (state: GameState): void => {
   state.guardEffects = state.guardEffects.filter((effect) => effect.frame < 8);
 };
 
+// 攻撃モーションを1フレーム進め、発生+持続+硬直を消化したら攻撃終了
 const advanceAttack = (fighter: Fighter): void => {
   if (fighter.attack === null) {
     return;
@@ -887,6 +971,10 @@ const advanceAttack = (fighter: Fighter): void => {
     fighter.attack = null;
   }
 };
+
+// ----------------------------------------------------------------
+// ラウンド終了と勝敗（2本先取でリザルトへ。引き分け＝同HPタイムアップや相打ちKOは両者に1本）
+// ----------------------------------------------------------------
 
 const finishRound = (state: GameState, kind: 'ko' | 'timeout'): void => {
   if (state.player === null || state.cpu === null || state.roundEnd !== null) {
@@ -940,6 +1028,12 @@ const updateRoundEnd = (state: GameState): GameState => {
   });
 };
 
+// ----------------------------------------------------------------
+// 対戦中の1フレーム更新パイプライン
+// intro/fight 演出 → ヒットストップ → CPU思考 → 両者更新 → ヒット解決 →
+// 攻撃進行 → 弾 → 押し戻し → エフェクト → 残り時間 → KO/タイムアップ判定（この順序が仕様）
+// ----------------------------------------------------------------
+
 const updateFight = (
   state: GameState,
   input: GameInput,
@@ -990,6 +1084,12 @@ const updateFight = (
   return state;
 };
 
+// ----------------------------------------------------------------
+// エントリポイント（画面ごとの入力処理と遷移）
+// title → select → cpu-select → stage-select → fight → result。Escape で逆順に戻る
+// ----------------------------------------------------------------
+
+// random と backgroundCount を注入可能にしてテストを決定的にする
 export type GameAdvanceOptions = {
   random?: () => number;
   backgroundCount?: number;
@@ -1098,6 +1198,10 @@ export const advanceGame = (
 
   return next;
 };
+
+// ----------------------------------------------------------------
+// スプライト選択（描画側 useAnimalFighter.ts から使う純ヘルパー）
+// ----------------------------------------------------------------
 
 export type CombatPose =
   | 'down'
