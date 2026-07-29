@@ -17,6 +17,7 @@ import {
   getPoseImagePath,
   GROUND_Y,
   isGuarding,
+  SELECT_COLUMNS,
   SELECT_SLOT_COUNT,
   setAssetStatus,
   type Fighter,
@@ -54,7 +55,8 @@ const GAME_KEYS: readonly GameKey[] = [
   'KeyZ',
   'KeyX',
   'KeyC',
-  'Enter'
+  'Enter',
+  'Escape'
 ];
 
 const SOUND_SETTINGS: Record<
@@ -550,7 +552,7 @@ const drawCharacterSelection = (
     28,
     26
   );
-  const columns = 5;
+  const columns = SELECT_COLUMNS;
   const slotWidth = 120;
   const slotHeight = 145;
   const gap = 10;
@@ -627,7 +629,13 @@ const drawCharacterSelection = (
     ctx.strokeRect(x - slotWidth / 2, y, slotWidth, slotHeight);
     drawText(ctx, '?', x, y + slotHeight / 2, 42, '#ffffff88');
   }
-  drawText(ctx, '← → えらぶ　　ENTER で決定', CANVAS_WIDTH / 2, 435, 15);
+  drawText(
+    ctx,
+    '←→↑↓ えらぶ　ENTER で決定　ESC で戻る',
+    CANVAS_WIDTH / 2,
+    435,
+    15
+  );
 };
 
 const drawStageSelection = (
@@ -667,7 +675,13 @@ const drawStageSelection = (
   });
 
   drawText(ctx, selectedStage.name, CANVAS_WIDTH / 2, 280, 24, COLORS.health);
-  drawText(ctx, '← → えらぶ　　ENTER で決定', CANVAS_WIDTH / 2, 435, 15);
+  drawText(
+    ctx,
+    '← → えらぶ　ENTER で決定　ESC で戻る',
+    CANVAS_WIDTH / 2,
+    435,
+    15
+  );
 };
 
 const drawResult = (
