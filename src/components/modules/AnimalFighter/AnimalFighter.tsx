@@ -8,7 +8,8 @@ const CONTROL_KEYS = [
   { key: 'Z', label: 'パンチ' },
   { key: 'X', label: 'キック' },
   { key: 'C', label: '飛び道具' },
-  { key: 'Enter', label: '決定' }
+  { key: 'Enter', label: '決定' },
+  { key: 'Esc', label: '戻る' }
 ] as const;
 
 export const AnimalFighter: FC = () => {

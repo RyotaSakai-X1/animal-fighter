@@ -215,6 +215,94 @@ describe('Animal Fighter game logic', () => {
     expect(wrappedRight.selectedIndex).toBe(0);
   });
 
+  test('toggles the player cursor row with the vertical keys', () => {
+    const ready = setAssetStatus(createInitialGameState(), true, false);
+    const select = advanceGame(ready, createInput(['Enter']));
+    const second = advanceGame(select, createInput(['ArrowRight']));
+    const lowerRow = advanceGame(second, createInput(['ArrowDown']));
+    const wrapped = advanceGame(lowerRow, createInput(['ArrowDown']));
+    const upperRow = advanceGame(wrapped, createInput(['ArrowUp']));
+
+    expect(second.selectedIndex).toBe(1);
+    expect(lowerRow.selectedIndex).toBe(6);
+    expect(wrapped.selectedIndex).toBe(1);
+    expect(upperRow.selectedIndex).toBe(6);
+  });
+
+  test('moves the CPU cursor vertically and blocks a mirror above or below', () => {
+    expect(stepCpuIndex(1, 0, 5)).toBe(6);
+    expect(stepCpuIndex(1, 6, 5)).toBe(1);
+    expect(stepCpuIndex(6, 1, -5)).toBe(6);
+
+    const ready = setAssetStatus(createInitialGameState(), true, false);
+    const select = advanceGame(ready, createInput(['Enter']));
+    const cpuSelect = advanceGame(select, createInput(['Enter']));
+    expect(cpuSelect.selectedIndex).toBe(0);
+    expect(cpuSelect.cpuSelectedIndex).toBe(1);
+    expect(
+      advanceGame(cpuSelect, createInput(['ArrowDown'])).cpuSelectedIndex
+    ).toBe(6);
+
+    const blocked = advanceGame(
+      { ...cpuSelect, selectedIndex: 6, cpuSelectedIndex: 1 },
+      createInput(['ArrowDown'])
+    );
+    expect(blocked.cpuSelectedIndex).toBe(1);
+  });
+
+  test('returns to the previous screen with Escape while keeping selections', () => {
+    const ready = setAssetStatus(createInitialGameState(), true, false);
+    const select = advanceGame(ready, createInput(['Enter']));
+    const moved = advanceGame(select, createInput(['ArrowRight']));
+    const cpuSelect = advanceGame(moved, createInput(['Enter']));
+    const stageSelect = advanceGame(cpuSelect, createInput(['Enter']));
+    const stageMoved = advanceGame(stageSelect, createInput(['ArrowRight']));
+
+    const backToCpu = advanceGame(stageMoved, createInput(['Escape']));
+    expect(backToCpu.screen).toBe('cpu-select');
+    expect(backToCpu.backgroundIndex).toBe(1);
+    expect(backToCpu.cpuSelectedIndex).toBe(2);
+
+    const backToSelect = advanceGame(backToCpu, createInput(['Escape']));
+    expect(backToSelect.screen).toBe('select');
+    expect(backToSelect.selectedIndex).toBe(1);
+
+    const backToTitle = advanceGame(backToSelect, createInput(['Escape']));
+    expect(backToTitle.screen).toBe('title');
+    expect(backToTitle.selectedIndex).toBe(1);
+  });
+
+  test('re-enters CPU selection from the new player choice after going back', () => {
+    const ready = setAssetStatus(createInitialGameState(), true, false);
+    const select = advanceGame(ready, createInput(['Enter']));
+    const cpuSelect = advanceGame(select, createInput(['Enter']));
+    const back = advanceGame(cpuSelect, createInput(['Escape']));
+    const moved = advanceGame(back, createInput(['ArrowRight']));
+    const reentered = advanceGame(moved, createInput(['Enter']));
+
+    expect(reentered.screen).toBe('cpu-select');
+    expect(reentered.cpuSelectedIndex).toBe(2);
+  });
+
+  test('ignores Escape on the title, fight, and result screens', () => {
+    const ready = setAssetStatus(createInitialGameState(), true, false);
+    expect(advanceGame(ready, createInput(['Escape'])).screen).toBe('title');
+
+    const fight = startFight();
+    expect(advanceGame(fight, createInput(['Escape'])).screen).toBe('fight');
+
+    const result = { ...fight, screen: 'result' as const };
+    expect(advanceGame(result, createInput(['Escape'])).screen).toBe('result');
+  });
+
+  test('prefers Escape over Enter when both are pressed together', () => {
+    const ready = setAssetStatus(createInitialGameState(), true, false);
+    const select = advanceGame(ready, createInput(['Enter']));
+    const both = advanceGame(select, createInput(['Escape', 'Enter']));
+
+    expect(both.screen).toBe('title');
+  });
+
   test('initializes and advances the CPU cursor without allowing a mirror', () => {
     expect(getInitialCpuIndex(2)).toBe(3);
     expect(stepCpuIndex(2, 0, 1)).toBe(3);

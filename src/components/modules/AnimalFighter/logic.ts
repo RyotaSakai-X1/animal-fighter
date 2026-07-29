@@ -44,6 +44,7 @@ export const CHARACTER_DEFINITIONS: readonly CharacterDefinition[] = [
   { id: 'vega', name: 'TIGER VEGA', color: '#f28c28' }
 ];
 export const SELECT_SLOT_COUNT = 10;
+export const SELECT_COLUMNS = 5;
 
 export const ATTACKS = {
   punch: { startup: 6, active: 4, recovery: 10, damage: 8, reach: 55 },
@@ -156,7 +157,8 @@ export type GameKey =
   | 'KeyZ'
   | 'KeyX'
   | 'KeyC'
-  | 'Enter';
+  | 'Enter'
+  | 'Escape';
 
 export type GameInput = InputState & {
   justPressed: ReadonlySet<GameKey>;
@@ -320,12 +322,12 @@ export const getInitialCpuIndex = (playerIndex: number): number =>
 export const stepCpuIndex = (
   currentIndex: number,
   playerIndex: number,
-  direction: -1 | 1
+  delta: number
 ): number => {
   const length = CHARACTER_DEFINITIONS.length;
-  let next = (currentIndex + direction + length) % length;
+  let next = (currentIndex + delta + length) % length;
   if (next === playerIndex) {
-    next = (next + direction + length) % length;
+    next = (next + delta + length) % length;
   }
   return next;
 };
@@ -1026,7 +1028,18 @@ export const advanceGame = (
       next.selectedIndex =
         (next.selectedIndex + 1) % CHARACTER_DEFINITIONS.length;
     }
-    if (input.justPressed.has('Enter') && next.assetsReady) {
+    if (input.justPressed.has('ArrowUp')) {
+      next.selectedIndex =
+        (next.selectedIndex + CHARACTER_DEFINITIONS.length - SELECT_COLUMNS) %
+        CHARACTER_DEFINITIONS.length;
+    }
+    if (input.justPressed.has('ArrowDown')) {
+      next.selectedIndex =
+        (next.selectedIndex + SELECT_COLUMNS) % CHARACTER_DEFINITIONS.length;
+    }
+    if (input.justPressed.has('Escape')) {
+      next.screen = 'title';
+    } else if (input.justPressed.has('Enter') && next.assetsReady) {
       next.cpuSelectedIndex = getInitialCpuIndex(next.selectedIndex);
       next.screen = 'cpu-select';
     }
@@ -1045,7 +1058,23 @@ export const advanceGame = (
         1
       );
     }
-    if (input.justPressed.has('Enter') && next.assetsReady) {
+    if (input.justPressed.has('ArrowUp')) {
+      next.cpuSelectedIndex = stepCpuIndex(
+        next.cpuSelectedIndex,
+        next.selectedIndex,
+        -SELECT_COLUMNS
+      );
+    }
+    if (input.justPressed.has('ArrowDown')) {
+      next.cpuSelectedIndex = stepCpuIndex(
+        next.cpuSelectedIndex,
+        next.selectedIndex,
+        SELECT_COLUMNS
+      );
+    }
+    if (input.justPressed.has('Escape')) {
+      next.screen = 'select';
+    } else if (input.justPressed.has('Enter') && next.assetsReady) {
       next.screen = 'stage-select';
     }
   } else if (next.screen === 'stage-select') {
@@ -1056,7 +1085,9 @@ export const advanceGame = (
     if (backgroundCount > 0 && input.justPressed.has('ArrowRight')) {
       next.backgroundIndex = (next.backgroundIndex + 1) % backgroundCount;
     }
-    if (input.justPressed.has('Enter') && next.assetsReady) {
+    if (input.justPressed.has('Escape')) {
+      next.screen = 'cpu-select';
+    } else if (input.justPressed.has('Enter') && next.assetsReady) {
       next = beginMatch(next);
     }
   } else if (next.screen === 'fight') {
