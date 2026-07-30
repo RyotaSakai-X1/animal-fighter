@@ -2,6 +2,37 @@
 // DOM / Canvas に依存しない純関数のみで構成され、唯一の入口 advanceGame() が
 // 「現在の状態 + 1フレーム分の入力 → 次の状態」を返す。
 // 描画・キー入力・requestAnimationFrame の配線は useAnimalFighter.ts が担当する。
+// キャラ別データは characters/、技の挙動は moves/behaviors.ts、
+// コマンド入力の認識は moves/commands.ts（Ver.7）。
+
+import {
+  CHARACTER_DEFINITIONS,
+  getCharacterSpec,
+  getMoveSpec,
+  getSpecialMove
+} from './characters';
+import type { CharacterId } from './characters/ids';
+import {
+  getChargeDirections,
+  matchSpecialCommand,
+  updateChargeState
+} from './moves/commands';
+import type {
+  CharacterDefinition,
+  CommandDirection,
+  CpuAction,
+  MoveSpec
+} from './moves/types';
+
+export { CHARACTER_DEFINITIONS, CHARACTER_IDS } from './characters';
+export type { CharacterId } from './characters/ids';
+export type {
+  CharacterDefinition,
+  CpuAction,
+  HurtboxSpec,
+  MoveSpec,
+  SpecialMove
+} from './moves/types';
 
 // ----------------------------------------------------------------
 // 基本定数（座標は canvas 内部解像度 800x450、時間は 60fps のフレーム数）
@@ -27,102 +58,28 @@ export const AIR_SPEED = 2.5;
 export const JUMP_VELOCITY = -15;
 
 // ----------------------------------------------------------------
-// キャラクター定義（現状は見た目のみの差分。能力値はまだ全キャラ共通）
+// 選択画面のグリッド
+// キャラクター定義・技のフレームデータ・当たり判定・CPU抽選表は characters/ にある
 // ----------------------------------------------------------------
 
-export const CHARACTER_IDS = [
-  'ryu',
-  'ken',
-  'chunli',
-  'honda',
-  'zangief',
-  'guile',
-  'dhalsim',
-  'bison',
-  'blanka',
-  'vega'
-] as const;
-export type CharacterId = (typeof CHARACTER_IDS)[number];
-
-export type CharacterDefinition = {
-  id: CharacterId;
-  name: string;
-  color: string;
-};
-
-export const CHARACTER_DEFINITIONS: readonly CharacterDefinition[] = [
-  { id: 'ryu', name: 'KUMA-RYU', color: '#8b5a2b' },
-  { id: 'ken', name: 'KUMA-KEN', color: '#f0ead6' },
-  { id: 'chunli', name: 'KITSUNE CHUN-LI', color: '#e0862f' },
-  { id: 'honda', name: 'AKITA-DOG HONDA', color: '#d9a05b' },
-  { id: 'zangief', name: 'BURU-DOG ZANGIEF', color: '#c0392b' },
-  { id: 'guile', name: 'GORILLA GUILE', color: '#5a7d2a' },
-  { id: 'dhalsim', name: 'GIBBON DHALSIM', color: '#d4a017' },
-  { id: 'bison', name: 'BISON BUFFALO', color: '#7b2fbe' },
-  { id: 'blanka', name: 'SHISHI BLANKA', color: '#58a832' },
-  { id: 'vega', name: 'TIGER VEGA', color: '#f28c28' }
-];
 export const SELECT_SLOT_COUNT = 10;
 export const SELECT_COLUMNS = 5;
-
-// ----------------------------------------------------------------
-// 攻撃のフレームデータ（全キャラ共通）
-// startup=発生, active=持続, recovery=硬直（単位: フレーム）, reach=前方への判定距離(px)
-// ----------------------------------------------------------------
-
-export const ATTACKS = {
-  punch: { startup: 6, active: 4, recovery: 10, damage: 8, reach: 55 },
-  kick: { startup: 10, active: 5, recovery: 16, damage: 13, reach: 75 },
-  projectile: { startup: 12, active: 1, recovery: 20, damage: 12, reach: 0 }
-} as const;
-
-export type AttackType = keyof typeof ATTACKS;
-
-// ----------------------------------------------------------------
-// CPU の行動抽選テーブル（プレイヤーとの距離帯ごとに重み付き抽選、各表の合計は 1.0）
-// 難易度・性格の調整はこの数値をいじる
-// ----------------------------------------------------------------
-
-export const CPU_PROBABILITIES = {
-  far: [
-    ['approach', 0.6],
-    ['projectile', 0.2],
-    ['idle', 0.2]
-  ],
-  mid: [
-    ['approach', 0.5],
-    ['jumpForward', 0.2],
-    ['projectile', 0.15],
-    ['idle', 0.15]
-  ],
-  close: [
-    ['punch', 0.35],
-    ['kick', 0.25],
-    ['retreat', 0.2],
-    ['jump', 0.1],
-    ['jumpForward', 0.1] // 近距離の前方ジャンプ＝飛び越えて裏に回る「めくり」狙い
-  ],
-  projectileDodge: 0.4
-} as const;
-
-export type CpuAction =
-  | 'approach'
-  | 'projectile'
-  | 'idle'
-  | 'jumpForward'
-  | 'punch'
-  | 'kick'
-  | 'retreat'
-  | 'jump';
 
 // ----------------------------------------------------------------
 // 型定義（ファイター・画面・入力・ゲーム全体の状態）
 // ----------------------------------------------------------------
 
+// 技の実体は moveId でキャラのスペックから引く。
+// Ver.6 の hasHit が多段ラッチと「弾を生成済みか」を兼用していたので役割ごとに分離した
 export type AttackState = {
-  type: AttackType;
+  moveId: string;
   frame: number;
-  hasHit: boolean;
+  hitsLanded: number;
+  // 次に当てられるまでの残りフレーム（多段技の間隔）
+  hitCooldown: number;
+  projectileSpawned: boolean;
+  // 空中技の着地硬直の残り。-1 = まだ着地していない
+  landingFrames: number;
 };
 
 export type Fighter = CharacterDefinition & {
@@ -139,7 +96,11 @@ export type Fighter = CharacterDefinition & {
   attack: AttackState | null;
   hitstun: number;
   hitstunElapsed: number;
-  projectileCooldown: number;
+  specialCooldown: number;
+  // 溜めコマンドの状態。溜め技を持たないキャラでは常に null / 0
+  chargeDirection: CommandDirection | null;
+  chargeFrames: number;
+  chargeGrace: number;
   blocking: boolean;
   aiAction: CpuAction;
   aiFrames: number;
@@ -152,6 +113,9 @@ export type Projectile = {
   vx: number;
   frame: number;
   onScreen: boolean;
+  // 弾は技より長生きするので、発生時のダメージと削りを持たせる
+  damage: number;
+  chipDamage: number;
 };
 
 export type HitSpark = { x: number; y: number; frame: number };
@@ -198,7 +162,7 @@ export type GameInput = InputState & {
   justPressed: ReadonlySet<GameKey>;
 };
 
-export type SoundEvent = 'hit' | 'guard' | 'projectile' | 'ko';
+export type SoundEvent = 'hit' | 'guard' | 'projectile' | 'ko' | 'charge';
 
 export type GameState = {
   screen: GameScreen;
@@ -283,12 +247,10 @@ export const setAssetStatus = (
   assetsFailed: boolean
 ): GameState => ({ ...state, assetsReady, assetsFailed });
 
+// スペック本体は毎フレーム複製したくないので、必要なときにレジストリから引く
 const getDefinition = (id: CharacterId): CharacterDefinition => {
-  const definition = CHARACTER_DEFINITIONS.find((item) => item.id === id);
-  if (definition === undefined) {
-    throw new Error(`Unknown character: ${id}`);
-  }
-  return definition;
+  const { name, color } = getCharacterSpec(id);
+  return { id, name, color };
 };
 
 const createFighter = (id: CharacterId, isPlayer: boolean): Fighter => ({
@@ -306,7 +268,10 @@ const createFighter = (id: CharacterId, isPlayer: boolean): Fighter => ({
   attack: null,
   hitstun: 0,
   hitstunElapsed: 0,
-  projectileCooldown: 0,
+  specialCooldown: 0,
+  chargeDirection: null,
+  chargeFrames: 0,
+  chargeGrace: 0,
   blocking: false,
   aiAction: 'idle',
   aiFrames: 1
@@ -330,7 +295,11 @@ const resetFighter = (
   attack: null,
   hitstun: 0,
   hitstunElapsed: 0,
-  projectileCooldown: 0,
+  specialCooldown: 0,
+  // 溜めはラウンドをまたいで持ち越さない
+  chargeDirection: null,
+  chargeFrames: 0,
+  chargeGrace: 0,
   blocking: false,
   aiAction: fighter.isPlayer ? fighter.aiAction : 'idle',
   aiFrames: fighter.isPlayer ? fighter.aiFrames : 1
@@ -438,14 +407,14 @@ export type Hitbox = {
   bottom: number;
 };
 
-// やられ判定の矩形。しゃがみで高さが半分になる
+// やられ判定の矩形。寸法はキャラごと（characters/<id>/index.ts の hurtbox）
 export const getHitbox = (fighter: Fighter): Hitbox => {
-  const height = fighter.crouching ? 65 : 130;
-  const width = 54;
+  const { width, height, crouchHeight } = getCharacterSpec(fighter.id).hurtbox;
+  const currentHeight = fighter.crouching ? crouchHeight : height;
   return {
     left: fighter.x - width / 2,
     right: fighter.x + width / 2,
-    top: fighter.y - height,
+    top: fighter.y - currentHeight,
     bottom: fighter.y
   };
 };
@@ -481,68 +450,94 @@ const hasProjectileFor = (state: GameState, fighter: Fighter): boolean =>
     (projectile) => projectile.owner === fighter.id && projectile.onScreen
   );
 
-// 攻撃を開始できたら true。攻撃中・硬直中・空中、飛び道具は画面内残存/クールダウン中なら不可
+// 攻撃を開始できたら true。攻撃中・硬直中・空中、必殺技はクールダウン中も不可。
+// 飛び道具はさらに自分の弾が画面内に残っていれば不可
 const startAttack = (
   state: GameState,
   fighter: Fighter,
-  type: AttackType
+  moveId: string
 ): boolean => {
-  const attack = ATTACKS[type];
+  const spec = getMoveSpec(fighter.id, moveId);
   if (
     fighter.attack !== null ||
     fighter.hitstun > 0 ||
     !fighter.grounded ||
-    attack === undefined
+    spec === undefined
   ) {
+    return false;
+  }
+  const special = getSpecialMove(fighter.id, moveId);
+  if (special !== undefined && fighter.specialCooldown > 0) {
     return false;
   }
   if (
-    type === 'projectile' &&
-    (fighter.projectileCooldown > 0 || hasProjectileFor(state, fighter))
+    spec.behavior?.kind === 'projectile' &&
+    hasProjectileFor(state, fighter)
   ) {
     return false;
   }
-  fighter.attack = { type, frame: 0, hasHit: false };
+  fighter.attack = {
+    moveId,
+    frame: 0,
+    hitsLanded: 0,
+    hitCooldown: 0,
+    projectileSpawned: false,
+    landingFrames: -1
+  };
   fighter.crouching = false;
   fighter.blocking = false;
-  if (type === 'projectile') {
-    fighter.projectileCooldown = 60;
+  if (special !== undefined) {
+    fighter.specialCooldown = special.cooldown;
   }
   return true;
 };
 
 // 攻撃判定が出ている（発生後〜持続終了前の）フレームか
-export const attackIsActive = (attack: AttackState): boolean => {
-  const settings = ATTACKS[attack.type];
-  return (
-    settings !== undefined &&
-    attack.frame >= settings.startup &&
-    attack.frame < settings.startup + settings.active
-  );
+export const attackIsActive = (
+  attack: AttackState,
+  spec: MoveSpec
+): boolean =>
+  attack.frame >= spec.startup && attack.frame < spec.startup + spec.active;
+
+// 単発技は1回当てた時点で上限に達するので Ver.6 の hasHit ラッチと同じ挙動になる
+const canLandHit = (attack: AttackState, spec: MoveSpec): boolean =>
+  attack.hitCooldown === 0 && attack.hitsLanded < spec.maxHits;
+
+// 空中回転技は持続を固定フレームにせず「打ち上がってから着地するまで」とする
+const moveIsActive = (fighter: Fighter, spec: MoveSpec): boolean => {
+  const attack = fighter.attack;
+  if (attack === null) {
+    return false;
+  }
+  const behavior = spec.behavior;
+  if (behavior !== null && behavior.kind === 'airborneSpin') {
+    return attack.frame >= spec.startup && !fighter.grounded;
+  }
+  return attackIsActive(attack, spec);
 };
 
-// 打撃の攻撃判定矩形。体の矩形を向いている方向へ reach 分伸ばす（飛び道具は別処理なので null）
-const getAttackBox = (fighter: Fighter, attack: AttackState): Hitbox | null => {
-  const settings = ATTACKS[attack.type];
-  if (settings === undefined || attack.type === 'projectile') {
+// 打撃の攻撃判定矩形。体の矩形を hitbox の設定ぶん広げる。
+// maxHits=0 の技は打撃判定を持たない（弾だけで当てる）ので null
+const getAttackBox = (fighter: Fighter, spec: MoveSpec): Hitbox | null => {
+  if (spec.maxHits === 0) {
     return null;
   }
+  const shape = spec.hitbox;
   const body = getHitbox(fighter);
-  const topOffset = attack.type === 'kick' ? 35 : 15;
-  if (fighter.facing === 1) {
+  const top = body.top + shape.topOffset;
+  const bottom = body.bottom - shape.bottomInset;
+  if (shape.spread === 'both') {
     return {
-      left: body.left,
-      right: body.right + settings.reach,
-      top: body.top + topOffset,
-      bottom: body.bottom - 18
+      left: body.left - shape.reach,
+      right: body.right + shape.reach,
+      top,
+      bottom
     };
   }
-  return {
-    left: body.left - settings.reach,
-    right: body.right,
-    top: body.top + topOffset,
-    bottom: body.bottom - 18
-  };
+  if (fighter.facing === 1) {
+    return { left: body.left, right: body.right + shape.reach, top, bottom };
+  }
+  return { left: body.left - shape.reach, right: body.right, top, bottom };
 };
 
 const addHitSpark = (state: GameState, x: number, y: number): void => {
@@ -553,22 +548,57 @@ const addGuardEffect = (state: GameState, x: number, y: number): void => {
   state.guardEffects.push({ x, y, frame: 0 });
 };
 
+// ----------------------------------------------------------------
+// 根性値（体力が減ると防御力が上がる）
+// ----------------------------------------------------------------
+
+// 本家は体力144で残り31から割引が始まるので、144:100 で換算して残り22から。
+// これがないと最後の一撃も最初と同じ威力で入り、決着が唐突になる
+const DEFENSE_BANDS: readonly { minHp: number; rate: number }[] = [
+  { minHp: 22, rate: 1 },
+  { minHp: 18, rate: 0.875 },
+  { minHp: 15, rate: 0.75 },
+  { minHp: 11, rate: 0.625 },
+  { minHp: 8, rate: 0.5 },
+  { minHp: 4, rate: 0.375 },
+  { minHp: 0, rate: 0.25 }
+];
+
+// 被弾側の残り体力（ヒット前）から決まるダメージ率
+export const getDefenseRate = (hp: number): number => {
+  const band = DEFENSE_BANDS.find((entry) => hp >= entry.minHp);
+  return band?.rate ?? 0.25;
+};
+
 type HitOptions = {
   attacker: Fighter;
   target: Fighter;
   damage: number;
+  chipDamage: number;
   contactX: number;
   contactY: number;
   projectileHit: boolean;
 };
 
-// ヒット/ガードの共通処理。ガードなら 1/4 ダメージ（最低1）+ 小ノックバック、
-// 素通しならヒットスタン付与。どちらもヒットストップで全体を一瞬止める
+// ヒット/ガードの共通処理。ガードなら技の削り（通常技は0）+ 小ノックバック、
+// 素通しならヒットスタン付与。どちらも根性値で割り引かれる
 const applyHit = (state: GameState, options: HitOptions): void => {
-  const { attacker, target, damage, contactX, contactY, projectileHit } =
-    options;
+  const {
+    attacker,
+    target,
+    damage,
+    chipDamage,
+    contactX,
+    contactY,
+    projectileHit
+  } = options;
   const guarding = isGuarding(target, attacker, state.input);
-  const finalDamage = guarding ? Math.max(1, Math.floor(damage / 4)) : damage;
+  const baseDamage = guarding ? chipDamage : damage;
+  // 端数はダメージ側を切り上げる（本家の「割引値としては切り捨て」と同じ）
+  const finalDamage =
+    baseDamage === 0
+      ? 0
+      : Math.ceil(baseDamage * getDefenseRate(target.hp));
   target.hp = Math.max(0, target.hp - finalDamage);
   const away = directionToOpponent(target, attacker) * -1;
   target.x = Math.max(
@@ -589,7 +619,9 @@ const applyHit = (state: GameState, options: HitOptions): void => {
   }
 
   if (!projectileHit && attacker.attack !== null) {
-    attacker.attack.hasHit = true;
+    const spec = getMoveSpec(attacker.id, attacker.attack.moveId);
+    attacker.attack.hitsLanded += 1;
+    attacker.attack.hitCooldown = spec?.hitInterval ?? 0;
   }
   state.hitStopFrames = HITSTOP_FRAMES;
 };
@@ -598,15 +630,22 @@ const applyHit = (state: GameState, options: HitOptions): void => {
 // 飛び道具とヒット解決
 // ----------------------------------------------------------------
 
-const spawnProjectile = (state: GameState, fighter: Fighter): void => {
+const spawnProjectile = (
+  state: GameState,
+  fighter: Fighter,
+  spec: MoveSpec,
+  behavior: { speed: number; height: number; offsetX: number }
+): void => {
   const direction = fighter.facing;
   state.projectiles.push({
     owner: fighter.id,
-    x: fighter.x + direction * 38,
-    y: fighter.y - 94,
-    vx: direction * 6,
+    x: fighter.x + direction * behavior.offsetX,
+    y: fighter.y - behavior.height,
+    vx: direction * behavior.speed,
     frame: 0,
-    onScreen: true
+    onScreen: true,
+    damage: spec.damage,
+    chipDamage: spec.chipDamage
   });
   state.events.push('projectile');
 };
@@ -638,8 +677,7 @@ const getFighter = (state: GameState, id: CharacterId): Fighter | null => {
   return null;
 };
 
-// 進行中の攻撃を解決する。打撃は持続中に1回だけヒット判定（hasHit で多段防止）、
-// 飛び道具は発生フレームで弾を生成する
+// 打撃は canLandHit が許すフレームでヒット判定、飛び道具は発生フレームで弾を生成する
 const resolveAttacks = (
   state: GameState,
   attacker: Fighter,
@@ -649,21 +687,22 @@ const resolveAttacks = (
   if (attack === null) {
     return;
   }
-  const settings = ATTACKS[attack.type];
+  const settings = getMoveSpec(attacker.id, attack.moveId);
   if (settings === undefined) {
     return;
   }
 
-  if (attack.type === 'projectile') {
-    if (attack.frame === settings.startup && !attack.hasHit) {
-      spawnProjectile(state, attacker);
-      attack.hasHit = true;
+  const behavior = settings.behavior;
+  if (behavior !== null && behavior.kind === 'projectile') {
+    if (attack.frame === behavior.spawnFrame && !attack.projectileSpawned) {
+      spawnProjectile(state, attacker, settings, behavior);
+      attack.projectileSpawned = true;
     }
     return;
   }
 
-  if (attackIsActive(attack) && !attack.hasHit) {
-    const box = getAttackBox(attacker, attack);
+  if (moveIsActive(attacker, settings) && canLandHit(attack, settings)) {
+    const box = getAttackBox(attacker, settings);
     const targetBox = getHitbox(target);
     if (box !== null && rectanglesOverlap(box, targetBox)) {
       const contactX = attacker.x + attacker.facing * 32;
@@ -675,6 +714,7 @@ const resolveAttacks = (
         attacker,
         target,
         damage: settings.damage,
+        chipDamage: settings.chipDamage,
         contactX,
         contactY,
         projectileHit: false
@@ -702,22 +742,24 @@ const chooseCpuAction = (state: GameState, random: () => number): CpuAction => {
       projectile.onScreen &&
       Math.abs(projectile.x - cpuX) <= 200
   );
-  if (incomingProjectile && random() < CPU_PROBABILITIES.projectileDodge) {
+  // 抽選表はキャラごと
+  const probabilities = getCharacterSpec(state.cpu.id).cpu;
+  if (incomingProjectile && random() < probabilities.projectileDodge) {
     return 'jump';
   }
 
   const table =
     distance > 300
-      ? CPU_PROBABILITIES.far
+      ? probabilities.far
       : distance >= 150
-        ? CPU_PROBABILITIES.mid
-        : CPU_PROBABILITIES.close;
+        ? probabilities.mid
+        : probabilities.close;
   const roll = random();
   let cumulative = 0;
   for (const [action, probability] of table) {
     cumulative += probability;
     if (roll < cumulative) {
-      return action as CpuAction;
+      return action;
     }
   }
   const fallback = table[table.length - 1];
@@ -725,7 +767,7 @@ const chooseCpuAction = (state: GameState, random: () => number): CpuAction => {
     roll,
     table
   });
-  return (fallback?.[0] ?? 'idle') as CpuAction;
+  return fallback?.[0] ?? 'idle';
 };
 
 // 20〜40 フレーム（約0.3〜0.7秒）ごとに行動を再抽選し、決めた行動はその間持続させる
@@ -759,6 +801,34 @@ const applyGravity = (fighter: Fighter): void => {
   }
 };
 
+// 通常技は攻撃中に動かない。空中回転技だけ発生フレームで打ち上がり、滞空中は前進する
+const applyMoveMotion = (fighter: Fighter): void => {
+  const attack = fighter.attack;
+  if (attack === null) {
+    return;
+  }
+  const spec = getMoveSpec(fighter.id, attack.moveId);
+  const behavior = spec?.behavior;
+  if (
+    spec === undefined ||
+    behavior === undefined ||
+    behavior === null ||
+    behavior.kind !== 'airborneSpin'
+  ) {
+    return;
+  }
+  if (attack.frame === spec.startup && fighter.grounded) {
+    fighter.vy = behavior.riseVelocity;
+    fighter.grounded = false;
+  }
+  if (!fighter.grounded) {
+    fighter.x = Math.max(
+      MIN_X,
+      Math.min(MAX_X, fighter.x + fighter.facing * behavior.drift)
+    );
+  }
+};
+
 type FighterUpdateOptions = {
   fighter: Fighter;
   opponent: Fighter;
@@ -774,6 +844,19 @@ const updatePlayer = (
   const direction = inputDirection(input);
   fighter.crouching = input.down && fighter.grounded;
 
+  // ジャンプより先に判定して justPressed('ArrowUp') を消費する（ジャンプの暴発防止）。
+  // 成立したら startAttack が失敗してもジャンプには落とさない
+  const special = matchSpecialCommand(
+    fighter,
+    getCharacterSpec(fighter.id).specials,
+    input
+  );
+  if (special !== null) {
+    startAttack(state, fighter, special.id);
+    fighter.vx = 0;
+    return;
+  }
+
   if (
     input.justPressed.has('ArrowUp') &&
     fighter.grounded &&
@@ -788,8 +871,6 @@ const updatePlayer = (
       startAttack(state, fighter, 'punch');
     } else if (input.justPressed.has('KeyX')) {
       startAttack(state, fighter, 'kick');
-    } else if (input.justPressed.has('KeyC')) {
-      startAttack(state, fighter, 'projectile');
     }
   }
 
@@ -810,8 +891,10 @@ const updateCpu = (
   opponent: Fighter
 ): void => {
   const action = fighter.aiAction;
-  if (action === 'projectile') {
-    if (!startAttack(state, fighter, 'projectile')) {
+  if (action === 'special') {
+    // CPU は溜め免除で直接発動する（抽選間隔20〜40Fと cooldown が抑制になる）
+    const special = getCharacterSpec(fighter.id).specials[0];
+    if (special === undefined || !startAttack(state, fighter, special.id)) {
       fighter.aiAction = 'approach';
     }
   } else if (action === 'punch') {
@@ -854,8 +937,20 @@ const updateFighter = (
 ): void => {
   const { fighter, opponent, input } = options;
   fighter.blocking = false;
-  if (fighter.projectileCooldown > 0) {
-    fighter.projectileCooldown -= 1;
+  if (fighter.specialCooldown > 0) {
+    fighter.specialCooldown -= 1;
+  }
+
+  // 溜めはヒットスタン中・攻撃中でも積む。CPU は入力を持たない＝溜め免除なので対象外
+  if (fighter.isPlayer) {
+    const charged = updateChargeState(
+      fighter,
+      input,
+      getChargeDirections(getCharacterSpec(fighter.id).specials)
+    );
+    if (charged) {
+      state.events.push('charge');
+    }
   }
 
   if (fighter.hitstun > 0) {
@@ -870,6 +965,7 @@ const updateFighter = (
   }
 
   if (fighter.attack !== null) {
+    applyMoveMotion(fighter);
     applyGravity(fighter);
     return;
   }
@@ -946,7 +1042,8 @@ const updateProjectiles = (state: GameState): void => {
       applyHit(state, {
         attacker: owner,
         target,
-        damage: ATTACKS.projectile.damage,
+        damage: projectile.damage,
+        chipDamage: projectile.chipDamage,
         contactX: projectile.x,
         contactY: projectile.y,
         projectileHit: true
@@ -975,14 +1072,36 @@ const advanceAttack = (fighter: Fighter): void => {
   if (fighter.attack === null) {
     return;
   }
-  const settings = ATTACKS[fighter.attack.type];
+  const settings = getMoveSpec(fighter.id, fighter.attack.moveId);
   if (settings === undefined) {
     fighter.attack = null;
     return;
   }
-  fighter.attack.frame += 1;
+  const attack = fighter.attack;
+  if (attack.hitCooldown > 0) {
+    attack.hitCooldown -= 1;
+  }
+
+  // 着地するまで frame を進め続け（アニメが回り判定も出続ける）、接地後に着地硬直へ
+  const behavior = settings.behavior;
+  if (behavior !== null && behavior.kind === 'airborneSpin') {
+    if (attack.landingFrames >= 0) {
+      attack.landingFrames -= 1;
+      if (attack.landingFrames <= 0) {
+        fighter.attack = null;
+      }
+      return;
+    }
+    attack.frame += 1;
+    if (fighter.grounded && attack.frame > settings.startup) {
+      attack.landingFrames = behavior.landingRecovery;
+    }
+    return;
+  }
+
+  attack.frame += 1;
   const total = settings.startup + settings.active + settings.recovery;
-  if (fighter.attack.frame >= total) {
+  if (attack.frame >= total) {
     fighter.attack = null;
   }
 };
@@ -1214,80 +1333,23 @@ export const advanceGame = (
   return next;
 };
 
-// ----------------------------------------------------------------
-// スプライト選択（描画側 useAnimalFighter.ts から使う純ヘルパー）
-// ----------------------------------------------------------------
+// スプライト選択は sprites.ts に移動（Ver.7）。互換のため再公開する
 
-export type CombatPose =
-  | 'down'
-  | 'punch'
-  | 'kick'
-  | 'fight'
-  | 'jump'
-  | 'crouch'
-  | 'guard';
-
-export type Pose = 'base' | 'icon' | CombatPose;
-
-export type PoseContext = {
-  opponent: Fighter;
-  roundEnd: RoundEnd | null;
-  guarding: boolean;
-};
-
-/**
- * Selects the sprite pose using the gameplay priority order.
- *
- * A KO loser alone uses `down`; attacks take precedence over hitstun, jump,
- * crouch, and guard; hitstun keeps the fighter in the neutral `fight` pose
- * because no separate hurt sprite exists in the asset set.
- */
-export const getPoseImagePath = (
-  fighter: Fighter,
-  context: PoseContext
-): CombatPose => {
-  let pose: CombatPose = 'fight';
-  if (
-    context.roundEnd?.kind === 'ko' &&
-    context.roundEnd.winner !== null &&
-    context.roundEnd.winner !== fighter.id
-  ) {
-    pose = 'down';
-  } else if (
-    fighter.attack?.type === 'punch' ||
-    fighter.attack?.type === 'projectile'
-  ) {
-    pose = 'punch';
-  } else if (fighter.attack?.type === 'kick') {
-    pose = 'kick';
-  } else if (fighter.hitstun > 0) {
-    pose = 'fight';
-  } else if (!fighter.grounded) {
-    pose = 'jump';
-  } else if (fighter.crouching) {
-    pose = 'crouch';
-  } else if (context.guarding) {
-    pose = 'guard';
-  }
-  return pose;
-};
-
-export const getCharacterImagePath = (_id: CharacterId): Pose => 'base';
-
-export const getCharacterIconPath = (_id: CharacterId): Pose => 'icon';
-
-export type CombatSpriteSpec = {
-  height: number | null;
-  width: number | null;
-  anchor: 'fighter' | 'ground';
-};
-
-export const getCombatSpriteSpec = (pose: CombatPose): CombatSpriteSpec => {
-  if (pose === 'down') {
-    return { height: null, width: 220, anchor: 'ground' };
-  }
-  if (pose === 'crouch') {
-    return { height: 126, width: null, anchor: 'ground' };
-  }
-  return { height: 180, width: null, anchor: 'fighter' };
-};
+export {
+  getCharacterIconPath,
+  getCharacterImagePath,
+  getChargeMeter,
+  getCombatSpriteSpec,
+  getPoseImagePath,
+  getSpecialSpriteFrame,
+  getSpecialSpriteSpec
+} from './sprites';
+export type {
+  ChargeMeter,
+  CombatPose,
+  CombatSpriteSpec,
+  Pose,
+  PoseContext,
+  SpecialSpriteFrame,
+  SpecialSpriteSpec
+} from './sprites';

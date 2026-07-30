@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import {
   MENU_BACKGROUND_URL,
+  specialSpriteUrls,
   spriteUrls,
   STAGE_DEFINITIONS,
   titleLogoUrl
@@ -13,16 +14,21 @@ import {
   createInitialGameState,
   getCharacterIconPath,
   getCharacterImagePath,
+  getChargeMeter,
   getCombatSpriteSpec,
   getPoseImagePath,
+  getSpecialSpriteFrame,
+  getSpecialSpriteSpec,
   GROUND_Y,
   isGuarding,
   SELECT_COLUMNS,
   SELECT_SLOT_COUNT,
   setAssetStatus,
+  type CharacterId,
   type Fighter,
   type GameInput,
   type GameKey,
+  type GameScreen,
   type GameState,
   type SoundEvent
 } from './logic';
@@ -42,6 +48,10 @@ const COLORS = {
 const IMAGE_PATHS = Array.from(
   new Set([
     ...Object.values(spriteUrls).flatMap((sprites) => Object.values(sprites)),
+    // ここに載せないと Vite がバンドルせず assetsReady のカウントも合わない
+    ...Object.values(specialSpriteUrls).flatMap((moves) =>
+      Object.values(moves ?? {}).flat()
+    ),
     ...STAGE_DEFINITIONS.map((stage) => stage.url),
     titleLogoUrl
   ])
@@ -84,7 +94,9 @@ const SOUND_SETTINGS: Record<
     duration: 0.2,
     volume: 0.06
   },
-  ko: { type: 'sawtooth', start: 180, end: 55, duration: 0.55, volume: 0.1 }
+  ko: { type: 'sawtooth', start: 180, end: 55, duration: 0.55, volume: 0.1 },
+  // 溜め完成の合図。溜め直すたびに鳴るので音量は控えめに
+  charge: { type: 'triangle', start: 660, end: 990, duration: 0.09, volume: 0.05 }
 };
 
 const isGameKey = (code: string): code is GameKey =>
@@ -330,6 +342,46 @@ const drawHud = (
   );
 };
 
+// 足元の溜めゲージ。頭上はガードの弧が使っているので足元に置く
+const drawChargeMeter = (
+  ctx: CanvasRenderingContext2D,
+  fighter: Fighter
+): void => {
+  const meter = getChargeMeter(fighter);
+  if (meter === null) {
+    return;
+  }
+  const radius = 26;
+  ctx.save();
+  ctx.globalAlpha = meter.onCooldown ? 0.25 : 0.85;
+  ctx.strokeStyle = meter.color;
+  ctx.lineWidth = 4;
+  ctx.beginPath();
+  if (meter.ready) {
+    const breath = 1 + Math.sin(meter.pulse * Math.PI) * 0.08;
+    ctx.arc(fighter.x, GROUND_Y - 6, radius * breath, 0, Math.PI * 2);
+  } else {
+    const start = -Math.PI / 2;
+    ctx.arc(
+      fighter.x,
+      GROUND_Y - 6,
+      radius,
+      start,
+      start + Math.PI * 2 * meter.progress
+    );
+  }
+  ctx.stroke();
+
+  if (meter.ready && meter.pulse < 1) {
+    ctx.globalAlpha = (1 - meter.pulse) * 0.7;
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.arc(fighter.x, GROUND_Y - 6, radius + meter.pulse * 26, 0, Math.PI * 2);
+    ctx.stroke();
+  }
+  ctx.restore();
+};
+
 const drawFighter = (
   ctx: CanvasRenderingContext2D,
   images: ReadonlyMap<string, HTMLImageElement>,
@@ -340,12 +392,34 @@ const drawFighter = (
   if (opponent === null) {
     return;
   }
+  drawChargeMeter(ctx, fighter);
+
   const guarding = isGuarding(fighter, opponent, state.input);
   const pose = getPoseImagePath(fighter, {
     opponent,
     roundEnd: state.roundEnd,
     guarding
   });
+  // 専用アニメを優先するが KO ポーズには譲る（タイムアップで敗者が down にならないため）
+  const specialFrame = pose === 'down' ? null : getSpecialSpriteFrame(fighter);
+  const specialUrl =
+    specialFrame === null
+      ? undefined
+      : specialSpriteUrls[fighter.id]?.[specialFrame.moveId]?.[
+          specialFrame.index
+        ];
+  if (specialFrame !== null && specialUrl !== undefined) {
+    const spec = getSpecialSpriteSpec(specialFrame.moveId);
+    const anchor = spec.anchor === 'ground' ? GROUND_Y : fighter.y;
+    drawImageAnchored(ctx, images, specialUrl, fighter.x, {
+      height: spec.height,
+      width: spec.width,
+      anchorY: anchor + spec.offsetY,
+      flip: fighter.facing < 0
+    });
+    return;
+  }
+
   const sprite = getCombatSpriteSpec(pose);
   const anchorY = sprite.anchor === 'ground' ? GROUND_Y : fighter.y;
   drawImageAnchored(ctx, images, getSpriteUrl(fighter.id, pose), fighter.x, {
@@ -755,9 +829,23 @@ const getAudioContextConstructor = (): typeof AudioContext | undefined => {
   return window.AudioContext ?? windowWithWebkitAudio.webkitAudioContext;
 };
 
+// 技表に必要な情報だけ React へ渡す。毎フレームの状態は境界を越えさせない
+export type MatchSummary = {
+  screen: GameScreen;
+  playerId: CharacterId | null;
+  cpuId: CharacterId | null;
+};
+
+const EMPTY_MATCH: MatchSummary = {
+  screen: 'title',
+  playerId: null,
+  cpuId: null
+};
+
 export const useAnimalFighter = () => {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const [canvasError, setCanvasError] = useState(false);
+  const [match, setMatch] = useState<MatchSummary>(EMPTY_MATCH);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -779,6 +867,19 @@ export const useAnimalFighter = () => {
     let animationId: number | null = null;
     let disposed = false;
     let audioContext: AudioContext | null = null;
+    let matchKey = `${EMPTY_MATCH.screen}||`;
+
+    // 差分があるフレームだけ setState する（毎フレームだと 60fps で再描画される）
+    const syncMatchSummary = (state: GameState): void => {
+      const playerId = state.player?.id ?? null;
+      const cpuId = state.cpu?.id ?? null;
+      const key = `${state.screen}|${playerId ?? ''}|${cpuId ?? ''}`;
+      if (key === matchKey) {
+        return;
+      }
+      matchKey = key;
+      setMatch({ screen: state.screen, playerId, cpuId });
+    };
 
     const updateAssetStatus = (): void => {
       if (loadedAssets === IMAGE_PATHS.length) {
@@ -887,6 +988,7 @@ export const useAnimalFighter = () => {
       });
       gameState.events.forEach(playSound);
       drawGame(ctx, images, gameState);
+      syncMatchSummary(gameState);
       justPressed.clear();
       animationId = window.requestAnimationFrame(frame);
     };
@@ -915,5 +1017,5 @@ export const useAnimalFighter = () => {
     };
   }, []);
 
-  return { canvasRef, canvasError };
+  return { canvasRef, canvasError, match };
 };

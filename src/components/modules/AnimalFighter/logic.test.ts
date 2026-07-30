@@ -1,6 +1,7 @@
+import { specialSpriteUrls } from './assets';
+import { getCharacterSpec } from './characters';
 import {
   advanceGame,
-  ATTACKS,
   BACKGROUND_COUNT,
   CHARACTER_IDS,
   CHARACTER_DEFINITIONS,
@@ -8,21 +9,29 @@ import {
   EMPTY_INPUT,
   getCharacterIconPath,
   getCharacterImagePath,
+  getChargeMeter,
   getCombatSpriteSpec,
   getInitialCpuIndex,
+  getDefenseRate,
   getHitbox,
   getPoseImagePath,
+  getSpecialSpriteFrame,
   GROUND_Y,
   isGuarding,
   rectanglesOverlap,
   SELECT_SLOT_COUNT,
   setAssetStatus,
   stepCpuIndex,
+  type AttackState,
   type Fighter,
   type GameInput,
   type GameKey,
   type GameState
 } from './logic';
+import {
+  CHARGE_GRACE_FRAMES,
+  CHARGE_REQUIRED_FRAMES
+} from './moves/commands';
 
 const ryuDefinition = CHARACTER_DEFINITIONS[0];
 const kenDefinition = CHARACTER_DEFINITIONS[1];
@@ -45,10 +54,28 @@ const createFighter = (overrides: Partial<Fighter> = {}): Fighter => ({
   attack: null,
   hitstun: 0,
   hitstunElapsed: 0,
-  projectileCooldown: 0,
+  specialCooldown: 0,
+  chargeDirection: null,
+  chargeFrames: 0,
+  chargeGrace: 0,
   blocking: false,
   aiAction: 'idle',
   aiFrames: 1,
+  ...overrides
+});
+
+// 進行中の攻撃。AttackState にフィールドが増えてもテスト側の記述が増えないよう
+// ここで既定値を集約する
+const createAttack = (
+  moveId: string,
+  overrides: Partial<AttackState> = {}
+): AttackState => ({
+  moveId,
+  frame: 0,
+  hitsLanded: 0,
+  hitCooldown: 0,
+  projectileSpawned: false,
+  landingFrames: -1,
   ...overrides
 });
 
@@ -118,21 +145,24 @@ describe('Animal Fighter image selection', () => {
     ).toBe('down');
     expect(
       getPoseImagePath(
-        createFighter({ attack: { type: 'punch', frame: 12, hasHit: false } }),
+        createFighter({ attack: createAttack('punch', { frame: 12 }) }),
         baseContext
       )
     ).toBe('punch');
     expect(
       getPoseImagePath(
         createFighter({
-          attack: { type: 'projectile', frame: 20, hasHit: true }
+          attack: createAttack('projectile', {
+            frame: 20,
+            projectileSpawned: true
+          })
         }),
         baseContext
       )
     ).toBe('punch');
     expect(
       getPoseImagePath(
-        createFighter({ attack: { type: 'kick', frame: 12, hasHit: false } }),
+        createFighter({ attack: createAttack('kick', { frame: 12 }) }),
         baseContext
       )
     ).toBe('kick');
@@ -497,18 +527,31 @@ describe('Animal Fighter game logic', () => {
     expect(rectanglesOverlap(getHitbox(player), getHitbox(cpu))).toBe(false);
   });
 
-  test('keeps the Ver.1 attack frame data and crouch hitbox', () => {
-    expect(ATTACKS).toEqual({
-      punch: { startup: 6, active: 4, recovery: 10, damage: 8, reach: 55 },
-      kick: { startup: 10, active: 5, recovery: 16, damage: 13, reach: 75 },
-      projectile: {
-        startup: 12,
-        active: 1,
-        recovery: 20,
-        damage: 12,
-        reach: 0
-      }
+  test('keeps the baseline frame data and crouch hitbox on Ryu', () => {
+    // リュウは全キャラの基準。Ver.6 の 54x130（しゃがみ65）を維持する
+    const ryu = getCharacterSpec('ryu');
+    expect(ryu.hurtbox).toEqual({ width: 54, height: 130, crouchHeight: 65 });
+    expect(ryu.punch).toMatchObject({
+      startup: 4,
+      active: 4,
+      recovery: 10,
+      damage: 8
     });
+    expect(ryu.punch.hitbox).toEqual({
+      reach: 55,
+      spread: 'forward',
+      topOffset: 15,
+      bottomInset: 18
+    });
+    expect(ryu.kick.hitbox).toMatchObject({
+      reach: 75,
+      spread: 'forward',
+      topOffset: 35
+    });
+    // 単発技は Ver.6 の hasHit ラッチと同じ挙動になる設定
+    expect(ryu.punch.maxHits).toBe(1);
+    expect(ryu.kick.maxHits).toBe(1);
+
     const standing = createFighter();
     const crouching = createFighter({ crouching: true });
     expect(getHitbox(standing).top).toBe(270);
@@ -516,6 +559,118 @@ describe('Animal Fighter game logic', () => {
     expect(isGuarding(standing, opponent, { ...EMPTY_INPUT, left: true })).toBe(
       true
     );
+  });
+
+  test('gives every character a hurtbox that preserves the Ver.6 side switch', () => {
+    for (const id of CHARACTER_IDS) {
+      const { hurtbox } = getCharacterSpec(id);
+      // ジャンプ頂点は約161px。これを超える高さだと頭に引っかかって飛び越えられない
+      expect(hurtbox.height).toBeLessThanOrEqual(155);
+      expect(hurtbox.crouchHeight).toBeLessThan(hurtbox.height);
+      // 密着から相手の中心を越えるのに必要な移動量は (自幅+相手幅)/2。
+      // 滞空43F × 横速度2.5 = 107.5px 動けるので、最も太い組でも収まる必要がある
+      expect(hurtbox.width).toBeLessThanOrEqual(70);
+    }
+    const widest = CHARACTER_IDS.map(
+      (id) => getCharacterSpec(id).hurtbox.width
+    ).sort((first, second) => second - first);
+    const worstPair = ((widest[0] ?? 0) + (widest[1] ?? 0)) / 2;
+    expect(worstPair).toBeLessThan(107.5);
+  });
+
+  test('differentiates frame data across characters', () => {
+    const chunli = getCharacterSpec('chunli');
+    const zangief = getCharacterSpec('zangief');
+    const dhalsim = getCharacterSpec('dhalsim');
+
+    // 春麗は発生が早く硬直が短い
+    expect(chunli.punch.recovery).toBeLessThan(
+      getCharacterSpec('ryu').punch.recovery
+    );
+    // ザンギエフは最高威力・最短リーチ
+    expect(zangief.kick.damage).toBe(16);
+    expect(zangief.punch.hitbox.reach).toBe(48);
+    // ダルシムは最長リーチ・低威力
+    expect(dhalsim.kick.hitbox.reach).toBe(95);
+    expect(dhalsim.kick.damage).toBe(10);
+
+    const reaches = CHARACTER_IDS.map(
+      (id) => getCharacterSpec(id).kick.hitbox.reach
+    );
+    expect(new Set(reaches).size).toBeGreaterThan(1);
+  });
+
+  test('discounts damage as the target gets closer to death', () => {
+    // 本家スト2の根性値（体力144で残り31から割引）を体力100へ換算した表
+    expect(getDefenseRate(100)).toBe(1);
+    expect(getDefenseRate(22)).toBe(1);
+    expect(getDefenseRate(21)).toBe(0.875);
+    expect(getDefenseRate(18)).toBe(0.875);
+    expect(getDefenseRate(17)).toBe(0.75);
+    expect(getDefenseRate(14)).toBe(0.625);
+    expect(getDefenseRate(10)).toBe(0.5);
+    expect(getDefenseRate(7)).toBe(0.375);
+    expect(getDefenseRate(3)).toBe(0.25);
+    expect(getDefenseRate(0)).toBe(0.25);
+  });
+
+  test('makes the last stretch of health take more hits than the first', () => {
+    // 13ダメージのキックを当て続けたときの必要回数。根性値がなければ
+    // 100/13 = 8回で終わるが、終盤が粘るので9回かかる
+    const hitsToKill = (damage: number): number => {
+      let hp = 100;
+      let hits = 0;
+      while (hp > 0 && hits < 100) {
+        hp = Math.max(0, hp - Math.ceil(damage * getDefenseRate(hp)));
+        hits += 1;
+      }
+      return hits;
+    };
+
+    expect(hitsToKill(13)).toBe(9);
+    expect(Math.ceil(100 / 13)).toBe(8);
+    // 小ダメージの技ほど終盤の粘りが効く
+    expect(hitsToKill(5)).toBeGreaterThan(Math.ceil(100 / 5));
+  });
+
+  test('does not chip health when a normal attack is guarded', () => {
+    // 相手と逆方向（左）を押しっぱなしでガードしながらキックを受ける
+    const fight = startActiveFight({ x: 300 }, { x: 356 });
+    let state: GameState = {
+      ...fight,
+      // CPU に近距離からキックを出させる
+      cpu: fight.cpu === null ? null : { ...fight.cpu, aiAction: 'kick' }
+    };
+
+    let guarded = false;
+    for (let index = 0; index < 90; index += 1) {
+      state = advanceGame(state, { ...createInput(), left: true });
+      if (state.events.includes('guard')) {
+        guarded = true;
+      }
+    }
+
+    expect(guarded).toBe(true);
+    // 通常技のガードは削らない（本家スト2と同じ）
+    expect(state.player?.hp).toBe(100);
+  });
+
+  test('still chips health when a projectile is guarded', () => {
+    const fight = startActiveFight({ x: 200 }, { x: 600 });
+    let state: GameState = {
+      ...fight,
+      cpu: fight.cpu === null ? null : { ...fight.cpu, aiAction: 'special' }
+    };
+
+    for (let index = 0; index < 120; index += 1) {
+      state = advanceGame(state, { ...createInput(), left: true });
+      if ((state.player?.hp ?? 100) < 100) {
+        break;
+      }
+    }
+
+    // 飛び道具の削りは3（本家の波動拳と同じ扱い）
+    expect(state.player?.hp).toBe(97);
   });
 
   test('awards a timeout round to the fighter with more health', () => {
@@ -532,5 +687,461 @@ describe('Animal Fighter game logic', () => {
     expect(result.roundEnd?.kind).toBe('timeout');
     expect(result.player?.roundWins).toBe(1);
     expect(result.cpu?.roundWins).toBe(0);
+  });
+});
+
+// ----------------------------------------------------------------
+// Ver.7: キャラ別の必殺技（春麗のスピニングバードキック）
+// ----------------------------------------------------------------
+
+describe('Animal Fighter special moves', () => {
+  const opponent = createFighter({
+    ...kenDefinition,
+    isPlayer: false,
+    x: 570,
+    facing: -1
+  });
+  const chunliDefinition = CHARACTER_DEFINITIONS[2];
+  if (chunliDefinition === undefined || chunliDefinition.id !== 'chunli') {
+    throw new Error('Chun-Li must be the third character in selection order.');
+  }
+
+  // 春麗をプレイヤーにした戦闘可能状態。CPU（ケン）は動かないよう固定される
+  const startChunliFight = (playerX = 300, cpuX = 366): GameState =>
+    startActiveFight({ ...chunliDefinition, x: playerX }, { x: cpuX });
+
+  const holdDown = (state: GameState, frames: number): GameState => {
+    let next = state;
+    for (let index = 0; index < frames; index += 1) {
+      next = advanceGame(next, { ...createInput(), down: true });
+    }
+    return next;
+  };
+
+  // C を押しっぱなしのまま ↑ を押す＝スピニングバードキックの発動入力
+  const pressUpWithSpecial = (state: GameState, down = true): GameState =>
+    advanceGame(state, {
+      ...createInput(['ArrowUp']),
+      down,
+      projectile: true
+    });
+
+  const runUntilAttackEnds = (
+    state: GameState,
+    limit = 200
+  ): { state: GameState; frames: number; apexY: number } => {
+    let next = state;
+    let frames = 0;
+    let apexY = GROUND_Y;
+    while (next.player?.attack != null && frames < limit) {
+      next = advanceGame(next, createInput());
+      frames += 1;
+      apexY = Math.min(apexY, next.player?.y ?? GROUND_Y);
+    }
+    return { state: next, frames, apexY };
+  };
+
+  test('fires the spinning bird kick after a full down charge', () => {
+    const charged = holdDown(startChunliFight(), CHARGE_REQUIRED_FRAMES);
+    expect(charged.player?.chargeFrames).toBe(CHARGE_REQUIRED_FRAMES);
+    expect(charged.player?.chargeDirection).toBe('down');
+
+    const fired = pressUpWithSpecial(charged);
+    expect(fired.player?.attack?.moveId).toBe('spinningBirdKick');
+  });
+
+  test('consumes the up press so no normal jump comes out', () => {
+    const fired = pressUpWithSpecial(
+      holdDown(startChunliFight(), CHARGE_REQUIRED_FRAMES)
+    );
+
+    // 通常ジャンプなら初速 JUMP_VELOCITY が入って離陸しているはず
+    expect(fired.player?.vy).toBe(0);
+    expect(fired.player?.grounded).toBe(true);
+  });
+
+  test('does nothing at all when the charge is too short', () => {
+    const short = pressUpWithSpecial(holdDown(startChunliFight(), 20));
+
+    expect(short.player?.attack).toBeNull();
+    expect(short.player?.vy).toBe(0);
+    expect(short.player?.grounded).toBe(true);
+  });
+
+  test('keeps the charge alive through the grace window after releasing down', () => {
+    const charged = holdDown(startChunliFight(), CHARGE_REQUIRED_FRAMES);
+
+    // ↓ を離してから CHARGE_GRACE_FRAMES 枚目のフレームまでは発動できる。
+    // ここでは 9F 空回ししてから 10F 目に入力する
+    let released = charged;
+    for (let index = 0; index < CHARGE_GRACE_FRAMES - 1; index += 1) {
+      released = advanceGame(released, createInput());
+    }
+    expect(pressUpWithSpecial(released, false).player?.attack?.moveId).toBe(
+      'spinningBirdKick'
+    );
+
+    // 猶予を1フレーム超えると溜めが破棄される
+    let expired = charged;
+    for (let index = 0; index < CHARGE_GRACE_FRAMES + 1; index += 1) {
+      expired = advanceGame(expired, createInput());
+    }
+    expect(expired.player?.chargeFrames).toBe(0);
+    expect(expired.player?.chargeDirection).toBeNull();
+    // 溜めが切れているので ↑ は通常ジャンプになる
+    const jumped = pressUpWithSpecial(expired, false);
+    expect(jumped.player?.attack).toBeNull();
+    expect(jumped.player?.grounded).toBe(false);
+  });
+
+  test('pushes the charge sound once, on the completing frame only', () => {
+    const almost = holdDown(startChunliFight(), CHARGE_REQUIRED_FRAMES - 1);
+    expect(almost.events).not.toContain('charge');
+
+    const completed = holdDown(almost, 1);
+    expect(completed.events).toContain('charge');
+
+    // 押し続けても鳴り続けない
+    const held = holdDown(completed, 5);
+    expect(held.events).not.toContain('charge');
+  });
+
+  test('rises higher than a normal jump but not so high it skips the strike zone', () => {
+    // 通常ジャンプの頂点を実測して比較する（マジックナンバーを置かない）
+    let jump = advanceGame(startChunliFight(300, 700), createInput(['ArrowUp']));
+    let jumpApex = GROUND_Y;
+    for (let index = 0; index < 60; index += 1) {
+      jump = advanceGame(jump, createInput());
+      jumpApex = Math.min(jumpApex, jump.player?.y ?? GROUND_Y);
+    }
+
+    const fired = pressUpWithSpecial(
+      holdDown(startChunliFight(300, 700), CHARGE_REQUIRED_FRAMES)
+    );
+    const { apexY } = runUntilAttackEnds(fired);
+
+    expect(apexY).toBeLessThan(jumpApex);
+    // ただし上げすぎない。逆さで脚が上なので、立ち相手に届くのは高度130px以下に
+    // いる間だけ。頂点が高すぎるとその区間を一瞬で通り抜けて当たらなくなる
+    expect(GROUND_Y - apexY).toBeLessThan(210);
+  });
+
+  test('travels forward faster than walking so it reads as a moving move', () => {
+    const fired = pressUpWithSpecial(
+      holdDown(startChunliFight(300, 700), CHARGE_REQUIRED_FRAMES)
+    );
+    const startX = fired.player?.x ?? 0;
+    const { state: finished } = runUntilAttackEnds(fired);
+    const travelled = (finished.player?.x ?? 0) - startX;
+
+    // 通常ジャンプの横移動は 43F × AIR_SPEED 2.5 ≒ 107px。それより遠くまで進む
+    expect(travelled).toBeGreaterThan(130);
+  });
+
+  test('stays airborne and active until landing, then plays the landing recovery', () => {
+    const fired = pressUpWithSpecial(
+      holdDown(startChunliFight(300, 700), CHARGE_REQUIRED_FRAMES)
+    );
+    const { state: finished, frames } = runUntilAttackEnds(fired);
+
+    // 発生10F + 滞空 + 着地硬直14F。滞空時間に合わせて伸びるので固定値ではない
+    expect(frames).toBeGreaterThan(60);
+    expect(frames).toBeLessThan(100);
+    expect(finished.player?.attack).toBeNull();
+    expect(finished.player?.grounded).toBe(true);
+    expect(finished.player?.y).toBe(GROUND_Y);
+  });
+
+  test('lands multiple hits without exceeding maxHits', () => {
+    const spec = getCharacterSpec('chunli').specials[0];
+    if (spec === undefined) {
+      throw new Error('Chun-Li must have a special.');
+    }
+    const fired = pressUpWithSpecial(
+      holdDown(startChunliFight(), CHARGE_REQUIRED_FRAMES)
+    );
+
+    let state = fired;
+    let maxHitsSeen = 0;
+    for (let index = 0; index < 200 && state.player?.attack != null; index += 1) {
+      state = advanceGame(state, createInput());
+      maxHitsSeen = Math.max(maxHitsSeen, state.player?.attack?.hitsLanded ?? 0);
+    }
+
+    // 近距離では全3段入る（7ダメージ×3）
+    expect(maxHitsSeen).toBe(spec.maxHits);
+    expect(state.cpu?.hp).toBe(100 - spec.damage * spec.maxHits);
+  });
+
+  test('connects from every practical starting distance', () => {
+    // 前進が遅かった頃（1.2px/F）は開始距離の半分近くで空振りしていた
+    for (const gap of [40, 80, 120, 160, 200, 240]) {
+      const fired = pressUpWithSpecial(
+        holdDown(startChunliFight(300, 300 + gap), CHARGE_REQUIRED_FRAMES)
+      );
+      const { state: finished } = runUntilAttackEnds(fired);
+      expect(
+        finished.cpu?.hp,
+        `gap ${gap} must connect`
+      ).toBeLessThan(100);
+    }
+  });
+
+  test('crosses the opponent up at point blank range', () => {
+    const fired = pressUpWithSpecial(
+      holdDown(startChunliFight(300, 360), CHARGE_REQUIRED_FRAMES)
+    );
+    const { state: landed } = runUntilAttackEnds(fired);
+    // 振り向きは「接地・非攻撃」のニュートラルフレームで再計算されるので、
+    // 技が終わった次のフレームまで進める（Ver.6 のサイドスイッチと同じ仕組み）
+    const finished = advanceGame(landed, createInput());
+    const { player, cpu } = getFighters(finished);
+
+    // 前進165px がノックバックを上回るので相手を追い抜いて裏に着地する。
+    // 通り抜けながら当てられるのは hitbox の spread:'both' のおかげ
+    expect(player.x).toBeGreaterThan(cpu.x);
+    expect(player.facing).toBe(-1);
+    expect(cpu.hp).toBeLessThan(100);
+  });
+
+  test('cycles the four spin frames every three frames while airborne', () => {
+    const spinning = createFighter({
+      ...chunliDefinition,
+      grounded: false,
+      attack: createAttack('spinningBirdKick', { frame: 12 })
+    });
+
+    expect(getSpecialSpriteFrame(spinning)).toEqual({
+      moveId: 'spinningBirdKick',
+      index: 0
+    });
+    const indexes = [12, 15, 18, 21, 24].map(
+      (frame) =>
+        getSpecialSpriteFrame(
+          createFighter({
+            ...chunliDefinition,
+            grounded: false,
+            attack: createAttack('spinningBirdKick', { frame })
+          })
+        )?.index
+    );
+    expect(indexes).toEqual([0, 1, 2, 3, 0]);
+  });
+
+  test('shows no spin animation on the ground or before launch', () => {
+    const windup = createFighter({
+      ...chunliDefinition,
+      attack: createAttack('spinningBirdKick', { frame: 4 })
+    });
+    const landing = createFighter({
+      ...chunliDefinition,
+      attack: createAttack('spinningBirdKick', { frame: 63, landingFrames: 8 })
+    });
+
+    expect(getSpecialSpriteFrame(windup)).toBeNull();
+    expect(getSpecialSpriteFrame(landing)).toBeNull();
+    // 地上フェーズはしゃがみポーズに落ちる
+    expect(
+      getPoseImagePath(windup, {
+        opponent,
+        roundEnd: null,
+        guarding: false
+      })
+    ).toBe('crouch');
+  });
+
+  test('gives Chun-Li nothing on a plain special press', () => {
+    const plain = advanceGame(startChunliFight(), {
+      ...createInput(['KeyC']),
+      projectile: true
+    });
+
+    expect(plain.player?.attack).toBeNull();
+    expect(plain.projectiles).toHaveLength(0);
+  });
+
+  test('keeps the projectile unchanged for the other characters', () => {
+    // プレイヤーはリュウ（デフォルトの飛び道具持ち）
+    const fight = startActiveFight({}, {});
+    const fired = advanceGame(fight, {
+      ...createInput(['KeyC']),
+      projectile: true
+    });
+    expect(fired.player?.attack?.moveId).toBe('projectile');
+    expect(fired.player?.specialCooldown).toBe(60);
+
+    // Ver.6 と同じく発生12Fで弾が出る
+    let state = fired;
+    for (let index = 0; index < 12; index += 1) {
+      state = advanceGame(state, createInput());
+    }
+    expect(state.projectiles).toHaveLength(1);
+    expect(state.projectiles[0]?.vx).toBe(6);
+    expect(state.projectiles[0]?.y).toBe(GROUND_Y - 94);
+  });
+
+  test('keeps airborne spin specs consistent with the engine assumptions', () => {
+    for (const id of CHARACTER_IDS) {
+      for (const special of getCharacterSpec(id).specials) {
+        const behavior = special.behavior;
+        if (behavior === null || behavior.kind !== 'airborneSpin') {
+          continue;
+        }
+        // 打ち上げは applyMoveMotion の frame === startup のフレームだけが行うので、
+        // 0 だとそのフレームが来ないまま着地判定が成立して技が不発になる
+        expect(special.startup).toBeGreaterThanOrEqual(1);
+        expect(behavior.riseVelocity).toBeLessThan(0);
+        expect(behavior.landingRecovery).toBeGreaterThanOrEqual(0);
+        // アニメの枚数が実際の画像枚数と一致していないと、足りない番号で
+        // 静かに通常ポーズへフォールバックする
+        const frames = specialSpriteUrls[id]?.[special.id];
+        expect(frames, `${id}/${special.id} needs sprite frames`).toBeDefined();
+        expect(frames).toHaveLength(special.animation?.frameCount ?? 0);
+      }
+    }
+  });
+
+  test('holds the landing recovery for exactly landingRecovery frames', () => {
+    const fired = pressUpWithSpecial(
+      holdDown(startChunliFight(300, 700), CHARGE_REQUIRED_FRAMES)
+    );
+
+    // 着地した最初のフレームまで進める
+    let state = fired;
+    let guard = 0;
+    while (
+      guard < 200 &&
+      (state.player?.attack?.landingFrames ?? -1) < 0 &&
+      state.player?.attack != null
+    ) {
+      state = advanceGame(state, createInput());
+      guard += 1;
+    }
+    const landingRecovery = 14;
+    expect(state.player?.attack?.landingFrames).toBe(landingRecovery);
+    expect(state.player?.grounded).toBe(true);
+
+    // ここからちょうど landingRecovery フレームで技が終わる（+1 に伸びていないこと）
+    for (let index = 0; index < landingRecovery - 1; index += 1) {
+      state = advanceGame(state, createInput());
+      expect(state.player?.attack).not.toBeNull();
+    }
+    state = advanceGame(state, createInput());
+    expect(state.player?.attack).toBeNull();
+  });
+
+  test('starts the spin animation on the first frame after launch', () => {
+    const spec = getCharacterSpec('chunli').specials[0];
+    if (spec === undefined) {
+      throw new Error('Chun-Li must have a special.');
+    }
+    const at = (frame: number): number | undefined =>
+      getSpecialSpriteFrame(
+        createFighter({
+          ...chunliDefinition,
+          grounded: false,
+          attack: createAttack(spec.id, { frame })
+        })
+      )?.index;
+
+    // 発生フレーム起点で 3F ずつ 0→1→2→3→0 と回る（離陸直後に4枚目が覗かない）
+    expect(at(spec.startup)).toBe(0);
+    expect(at(spec.startup + 2)).toBe(0);
+    expect(at(spec.startup + 3)).toBe(1);
+    expect(at(spec.startup + 11)).toBe(3);
+    expect(at(spec.startup + 12)).toBe(0);
+  });
+
+  test('does not turn a cooldown-blocked command into a jump', () => {
+    const charged = holdDown(startChunliFight(300, 700), CHARGE_REQUIRED_FRAMES);
+    const onCooldown: GameState = {
+      ...charged,
+      player:
+        charged.player === null
+          ? null
+          : { ...charged.player, specialCooldown: 40 }
+    };
+    const attempted = pressUpWithSpecial(onCooldown);
+
+    // 必殺技も出ないが、ジャンプにも化けない
+    expect(attempted.player?.attack).toBeNull();
+    expect(attempted.player?.grounded).toBe(true);
+    expect(attempted.player?.vy).toBe(0);
+  });
+
+  test('keeps every CPU probability table summing to 1.0', () => {
+    // Ver.6 では合計1.0がコメントでしか保証されていなかった。崩れると
+    // chooseCpuAction がフォールバック経路（console.warn）に落ちる
+    for (const id of CHARACTER_IDS) {
+      const { cpu } = getCharacterSpec(id);
+      for (const band of [cpu.far, cpu.mid, cpu.close]) {
+        const total = band.reduce((sum, [, weight]) => sum + weight, 0);
+        expect(total).toBeCloseTo(1, 5);
+      }
+    }
+  });
+
+  test('lets a CPU Chun-Li use the spinning bird kick without a charge', () => {
+    // CPU 春麗を近距離に置き、close 帯で special を引く乱数を与える。
+    // punch 0.3 + kick 0.2 = 0.5 の次が special 0.15 なので 0.55 で当たる
+    const fight = startActiveFight(
+      { x: 300 },
+      { ...chunliDefinition, x: 360, aiFrames: 1 }
+    );
+    const rolled = advanceGame(fight, createInput(), { random: () => 0.55 });
+
+    expect(rolled.cpu?.aiAction).toBe('special');
+    expect(rolled.cpu?.attack?.moveId).toBe('spinningBirdKick');
+    // 溜めは免除だが、クールダウンはプレイヤーと同じように効く
+    expect(rolled.cpu?.specialCooldown).toBe(90);
+    expect(rolled.cpu?.chargeFrames).toBe(0);
+  });
+
+  test('never makes a CPU Chun-Li throw a projectile at long range', () => {
+    const fight = startActiveFight(
+      { x: 60 },
+      { ...chunliDefinition, x: 740, aiFrames: 1 }
+    );
+    // far 帯は approach 0.7 / idle 0.3 のみ。どの乱数でも special は出ない
+    for (const roll of [0.05, 0.35, 0.69, 0.71, 0.95]) {
+      const rolled = advanceGame(fight, createInput(), { random: () => roll });
+      expect(rolled.cpu?.aiAction).not.toBe('special');
+      expect(rolled.projectiles).toHaveLength(0);
+    }
+  });
+
+  test('reports the charge meter only for a charging player with a charge move', () => {
+    const noCharge = createFighter({ ...chunliDefinition });
+    expect(getChargeMeter(noCharge)).toBeNull();
+
+    const halfway = createFighter({
+      ...chunliDefinition,
+      chargeDirection: 'down',
+      chargeFrames: CHARGE_REQUIRED_FRAMES / 2
+    });
+    expect(getChargeMeter(halfway)?.progress).toBeCloseTo(0.5);
+    expect(getChargeMeter(halfway)?.ready).toBe(false);
+
+    const ready = createFighter({
+      ...chunliDefinition,
+      chargeDirection: 'down',
+      chargeFrames: CHARGE_REQUIRED_FRAMES
+    });
+    expect(getChargeMeter(ready)?.ready).toBe(true);
+    expect(getChargeMeter(ready)?.progress).toBe(1);
+
+    // 溜め技を持たないキャラと CPU（溜め免除）は非表示
+    const ryuCharging = createFighter({
+      chargeDirection: 'down',
+      chargeFrames: CHARGE_REQUIRED_FRAMES
+    });
+    const cpuChunli = createFighter({
+      ...chunliDefinition,
+      isPlayer: false,
+      chargeDirection: 'down',
+      chargeFrames: CHARGE_REQUIRED_FRAMES
+    });
+    expect(getChargeMeter(ryuCharging)).toBeNull();
+    expect(getChargeMeter(cpuChunli)).toBeNull();
   });
 });
