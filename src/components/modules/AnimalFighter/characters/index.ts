@@ -1,7 +1,11 @@
 // キャラのレジストリ。エンジンはここ経由でだけキャラ別データに触る。
 // 新しいキャラは characters/<id>/index.ts を作って CHARACTER_SPEC_ORDER に並べる。
 
-import { describeCommand } from '../moves/commands';
+import {
+  commandTokensToText,
+  describeCommandTokens,
+  type CommandToken
+} from '../moves/commands';
 import type {
   CharacterDefinition,
   CharacterSpec,
@@ -89,7 +93,9 @@ export const getSpecialMove = (
 export type MoveListEntry = {
   id: string;
   name: string;
-  command: string;
+  // キーごとに分解したコマンド。commandText は読み上げ用の平文
+  command: readonly CommandToken[];
+  commandText: string;
   damage: string;
 };
 
@@ -98,18 +104,25 @@ export const getMoveList = (id: CharacterId): readonly MoveListEntry[] => {
   const spec = getCharacterSpec(id);
   const describeDamage = (move: MoveSpec): string =>
     move.maxHits > 1 ? `${move.damage}×${move.maxHits}` : `${move.damage}`;
-  const describeMove = (move: MoveSpec, command: string): MoveListEntry => ({
+  const describeMove = (
+    move: MoveSpec,
+    command: readonly CommandToken[]
+  ): MoveListEntry => ({
     id: move.id,
     name: move.name,
     command,
+    commandText: commandTokensToText(command),
     damage: describeDamage(move)
   });
+  const buttonToken = (label: string): readonly CommandToken[] => [
+    { kind: 'key', label, note: null }
+  ];
 
   return [
-    describeMove(spec.punch, 'Z'),
-    describeMove(spec.kick, 'X'),
+    describeMove(spec.punch, buttonToken('Z')),
+    describeMove(spec.kick, buttonToken('X')),
     ...spec.specials.map((special) =>
-      describeMove(special, describeCommand(special.command))
+      describeMove(special, describeCommandTokens(special.command))
     )
   ];
 };

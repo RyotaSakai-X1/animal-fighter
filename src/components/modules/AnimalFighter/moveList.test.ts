@@ -12,8 +12,8 @@ describe('move list', () => {
       const moves = getMoveList(id);
 
       expect(moves).toHaveLength(2 + spec.specials.length);
-      expect(moves[0]?.command).toBe('Z');
-      expect(moves[1]?.command).toBe('X');
+      expect(moves[0]?.commandText).toBe('Z');
+      expect(moves[1]?.commandText).toBe('X');
       for (const move of moves) {
         expect(move.name.length).toBeGreaterThan(0);
         expect(move.command.length).toBeGreaterThan(0);
@@ -27,11 +27,19 @@ describe('move list', () => {
     const special = moves.find((move) => move.id === 'spinningBirdKick');
 
     expect(special?.name).toBe('スピニングバードキック');
-    expect(special?.command).toBe('↓溜め → C+↑');
+    // キーごとに分解されている（表示は1つずつ <kbd> になる）
+    expect(special?.command).toEqual([
+      { kind: 'key', label: '↓', note: '溜め' },
+      { kind: 'then' },
+      { kind: 'key', label: 'C', note: null },
+      { kind: 'plus' },
+      { kind: 'key', label: '↑', note: null }
+    ]);
+    expect(special?.commandText).toBe('↓溜め → C+↑');
     // 多段技はダメージ×段数で見せる
     expect(special?.damage).toBe('7×3');
     // 春麗は飛び道具を持たないので C 単押しの技は出ない
-    expect(moves.some((move) => move.command === 'C')).toBe(false);
+    expect(moves.some((move) => move.commandText === 'C')).toBe(false);
   });
 
   test('shows the plain special button for the other characters', () => {
@@ -39,7 +47,7 @@ describe('move list', () => {
       (move) => move.id === 'projectile'
     );
 
-    expect(special?.command).toBe('C');
+    expect(special?.commandText).toBe('C');
     expect(special?.damage).toBe('12');
   });
 
@@ -61,7 +69,12 @@ describe('move list', () => {
     for (const move of getMoveList('chunli')) {
       expect(markup).toContain(move.name);
     }
-    expect(markup).toContain('↓溜め → C+↑');
+    // キーが個別のチップになっていること
+    expect(markup).toContain('>↓</kbd>');
+    expect(markup).toContain('>C</kbd>');
+    expect(markup).toContain('>↑</kbd>');
+    expect(markup).toContain('溜め');
+    expect(markup).toContain('aria-label="↓溜め → C+↑"');
   });
 
   test('renders nothing before the fighters are chosen', () => {

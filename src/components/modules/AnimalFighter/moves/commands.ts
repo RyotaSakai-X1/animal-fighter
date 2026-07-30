@@ -56,13 +56,43 @@ const BUTTON_LABELS: Record<CommandButton, string> = {
   special: 'C'
 };
 
-// 技表の表示用。操作説明を書き足さずに済むようデータから組み立てる
-export const describeCommand = (command: CommandSpec): string => {
+// 技表の表示用トークン。キーを1つずつ <kbd> で出せるよう分解する
+// （'↓溜め → C+↑' のような1本の文字列だと読みづらい）
+export type CommandToken =
+  | { kind: 'key'; label: string; note: string | null }
+  | { kind: 'then' }
+  | { kind: 'plus' };
+
+export const describeCommandTokens = (
+  command: CommandSpec
+): readonly CommandToken[] => {
   if (command.kind === 'buttonOnly') {
-    return BUTTON_LABELS[command.trigger];
+    return [{ kind: 'key', label: BUTTON_LABELS[command.trigger], note: null }];
   }
-  return `${DIRECTION_LABELS[command.charge]}溜め → ${BUTTON_LABELS[command.hold]}+${DIRECTION_LABELS[command.trigger]}`;
+  return [
+    { kind: 'key', label: DIRECTION_LABELS[command.charge], note: '溜め' },
+    { kind: 'then' },
+    { kind: 'key', label: BUTTON_LABELS[command.hold], note: null },
+    { kind: 'plus' },
+    { kind: 'key', label: DIRECTION_LABELS[command.trigger], note: null }
+  ];
 };
+
+// 読み上げ用の平文。トークンから作るので表示とズレない
+export const commandTokensToText = (
+  tokens: readonly CommandToken[]
+): string =>
+  tokens
+    .map((token) => {
+      if (token.kind === 'then') {
+        return ' → ';
+      }
+      if (token.kind === 'plus') {
+        return '+';
+      }
+      return `${token.label}${token.note ?? ''}`;
+    })
+    .join('');
 
 // 溜めカウンタは1本だけなので、別方向を入れ始めたら溜め直しになる
 export const getChargeDirections = (

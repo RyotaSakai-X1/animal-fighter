@@ -1,6 +1,7 @@
 import type { FC } from 'react';
 import { getCharacterSpec, getMoveList } from './characters';
 import type { CharacterId } from './characters/ids';
+import type { CommandToken } from './moves/commands';
 import { useAnimalFighter } from './useAnimalFighter';
 
 // キャラ固有の必殺技コマンドはここに書かない（MoveListPanel で見せる）
@@ -14,6 +15,26 @@ const CONTROL_KEYS = [
   { key: 'Enter', label: '決定' },
   { key: 'Esc', label: '戻る' }
 ] as const;
+
+// コマンドはキーを1つずつチップで出す（1本の文字列だと読みづらい）
+const CommandTokenView: FC<{ token: CommandToken }> = ({ token }) => {
+  if (token.kind === 'then') {
+    return <span className='text-[11px] text-slate-500'>→</span>;
+  }
+  if (token.kind === 'plus') {
+    return <span className='text-[11px] font-bold text-slate-500'>+</span>;
+  }
+  return (
+    <span className='inline-flex items-center gap-0.5'>
+      <kbd className='inline-block min-w-[22px] rounded border border-slate-600 bg-slate-900 px-1.5 py-0.5 text-center text-xs font-bold text-amber-200'>
+        {token.label}
+      </kbd>
+      {token.note !== null && (
+        <span className='text-[10px] text-slate-400'>{token.note}</span>
+      )}
+    </span>
+  );
+};
 
 type MoveListPanelProps = {
   id: CharacterId | null;
@@ -50,17 +71,24 @@ export const MoveListPanel: FC<MoveListPanelProps> = ({
       <ul className='space-y-2'>
         {moves.map((move) => (
           <li key={move.id}>
-            {/* 技名は幅いっぱいに使い、コマンドとダメージを1行にまとめる */}
-            <p className='text-[13px] font-semibold leading-tight text-slate-200'>
-              {move.name}
-            </p>
-            <div className='mt-1 flex items-center justify-between gap-2'>
-              <kbd className='rounded border border-slate-600 bg-slate-900 px-1.5 py-0.5 text-xs font-bold text-amber-200'>
-                {move.command}
-              </kbd>
+            <div className='flex items-baseline justify-between gap-2'>
+              <span className='text-[13px] font-semibold leading-tight text-slate-200'>
+                {move.name}
+              </span>
               <span className='shrink-0 text-[11px] tabular-nums text-slate-400'>
                 {move.damage}
               </span>
+            </div>
+            <div
+              className='mt-1 flex flex-wrap items-center gap-x-1 gap-y-1'
+              aria-label={move.commandText}
+            >
+              {move.command.map((token, index) => (
+                <CommandTokenView
+                  key={`${move.id}-${String(index)}`}
+                  token={token}
+                />
+              ))}
             </div>
           </li>
         ))}
