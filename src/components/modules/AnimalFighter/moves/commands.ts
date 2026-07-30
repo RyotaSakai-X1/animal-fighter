@@ -56,11 +56,11 @@ const BUTTON_LABELS: Record<CommandButton, string> = {
   special: 'C'
 };
 
-// 技表の表示用トークン。キーを1つずつ <kbd> で出せるよう分解する
-// （'↓溜め → C+↑' のような1本の文字列だと読みづらい）
+// 技表の表示用トークン。キーを1つずつ <kbd> で出せるよう分解する。
+// 区切りは '+' だけにする。'→' は方向キーそのものなので、順次入力の意味で使うと
+// 「→を押す」と読めてしまう。順番は key の note（'溜め' など）が表している
 export type CommandToken =
   | { kind: 'key'; label: string; note: string | null }
-  | { kind: 'then' }
   | { kind: 'plus' };
 
 export const describeCommandTokens = (
@@ -71,7 +71,7 @@ export const describeCommandTokens = (
   }
   return [
     { kind: 'key', label: DIRECTION_LABELS[command.charge], note: '溜め' },
-    { kind: 'then' },
+    { kind: 'plus' },
     { kind: 'key', label: BUTTON_LABELS[command.hold], note: null },
     { kind: 'plus' },
     { kind: 'key', label: DIRECTION_LABELS[command.trigger], note: null }
@@ -83,15 +83,9 @@ export const commandTokensToText = (
   tokens: readonly CommandToken[]
 ): string =>
   tokens
-    .map((token) => {
-      if (token.kind === 'then') {
-        return ' → ';
-      }
-      if (token.kind === 'plus') {
-        return '+';
-      }
-      return `${token.label}${token.note ?? ''}`;
-    })
+    .map((token) =>
+      token.kind === 'plus' ? '+' : `${token.label}${token.note ?? ''}`
+    )
     .join('');
 
 // 溜めカウンタは1本だけなので、別方向を入れ始めたら溜め直しになる

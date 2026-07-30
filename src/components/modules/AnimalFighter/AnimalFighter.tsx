@@ -18,9 +18,6 @@ const CONTROL_KEYS = [
 
 // コマンドはキーを1つずつチップで出す（1本の文字列だと読みづらい）
 const CommandTokenView: FC<{ token: CommandToken }> = ({ token }) => {
-  if (token.kind === 'then') {
-    return <span className='text-[11px] text-slate-500'>→</span>;
-  }
   if (token.kind === 'plus') {
     return <span className='text-[11px] font-bold text-slate-500'>+</span>;
   }

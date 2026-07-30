@@ -30,12 +30,12 @@ describe('move list', () => {
     // キーごとに分解されている（表示は1つずつ <kbd> になる）
     expect(special?.command).toEqual([
       { kind: 'key', label: '↓', note: '溜め' },
-      { kind: 'then' },
+      { kind: 'plus' },
       { kind: 'key', label: 'C', note: null },
       { kind: 'plus' },
       { kind: 'key', label: '↑', note: null }
     ]);
-    expect(special?.commandText).toBe('↓溜め → C+↑');
+    expect(special?.commandText).toBe('↓溜め+C+↑');
     // 多段技はダメージ×段数で見せる
     expect(special?.damage).toBe('7×3');
     // 春麗は飛び道具を持たないので C 単押しの技は出ない
@@ -74,7 +74,9 @@ describe('move list', () => {
     expect(markup).toContain('>C</kbd>');
     expect(markup).toContain('>↑</kbd>');
     expect(markup).toContain('溜め');
-    expect(markup).toContain('aria-label="↓溜め → C+↑"');
+    expect(markup).toContain('aria-label="↓溜め+C+↑"');
+    // 区切りは '+' だけ。'→' は方向キーと紛れるので使わない
+    expect(markup).not.toContain('→');
   });
 
   test('renders nothing before the fighters are chosen', () => {
