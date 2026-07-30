@@ -1,6 +1,4 @@
-// キャラクターIDの単独定義。このファイルだけは他モジュールへの依存を持たない。
-// moves/ 側の型定義が CharacterId を必要とし、characters/ 側が moves/ の型を必要とするため、
-// IDだけを切り出して相互参照を断ち切っている。
+// ID だけを切り出して moves/ と characters/ の相互参照を断つ。依存を持たせないこと。
 
 export const CHARACTER_IDS = [
   'ryu',

@@ -7,7 +7,7 @@ export const honda: CharacterSpec = {
   id: 'honda',
   name: 'AKITA-DOG HONDA',
   color: '#d9a05b',
-  // 初代 遠立ち中Ｐ 6/4/4・強Ｋ 9/6/18。速くて重い、体が横に広くリーチ短
+  // 初代 中Ｐ 6/4/4・強Ｋ 9/6/18。速くて重い、体が横に広くリーチ短
   hurtbox: { width: 68, height: 124, crouchHeight: 66 },
   punch: makeNormal('punch', {
     startup: 6,

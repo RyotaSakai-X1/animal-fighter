@@ -7,7 +7,7 @@ export const ken: CharacterSpec = {
   id: 'ken',
   name: 'KUMA-KEN',
   color: '#f0ead6',
-  // リュウとほぼ同じ。本家でも強Ｋの硬直だけ短い
+  // リュウとほぼ同じで、強Ｋの硬直だけ短い
   hurtbox: { width: 56, height: 130, crouchHeight: 65 },
   punch: makeNormal('punch', {
     startup: 4,

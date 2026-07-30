@@ -7,7 +7,7 @@ export const chunli: CharacterSpec = {
   id: 'chunli',
   name: 'KITSUNE CHUN-LI',
   color: '#e0862f',
-  // 初代 遠立ち中Ｐ 5/4/4・強Ｋ 11/8/14。発生が早く硬直が短い、脚が長く低威力
+  // 初代 中Ｐ 5/4/4・強Ｋ 11/8/14。発生が早く脚が長い、低威力
   hurtbox: { width: 48, height: 126, crouchHeight: 62 },
   punch: makeNormal('punch', {
     startup: 5,

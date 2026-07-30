@@ -2,10 +2,8 @@
 // DOM / Canvas に依存しない純関数のみで構成され、唯一の入口 advanceGame() が
 // 「現在の状態 + 1フレーム分の入力 → 次の状態」を返す。
 // 描画・キー入力・requestAnimationFrame の配線は useAnimalFighter.ts が担当する。
-//
-// キャラごとのフレームデータ・当たり判定・必殺技・CPU抽選表は characters/ が持ち、
-// このファイルはレジストリ経由でだけそれを読む（Ver.7）。技の挙動の種類は
-// moves/behaviors.ts、コマンド入力の認識は moves/commands.ts。
+// キャラ別データは characters/、技の挙動は moves/behaviors.ts、
+// コマンド入力の認識は moves/commands.ts（Ver.7）。
 
 import {
   CHARACTER_DEFINITIONS,
@@ -71,18 +69,16 @@ export const SELECT_COLUMNS = 5;
 // 型定義（ファイター・画面・入力・ゲーム全体の状態）
 // ----------------------------------------------------------------
 
-// 進行中の攻撃。技の実体は moveId でキャラのスペックから引く（通常技=punch/kick、
-// 必殺技=キャラ固有のid）。Ver.6 の hasHit は「打撃の1回ヒットラッチ」と
-// 「飛び道具を生成済みか」を兼用していたので、Ver.7 で役割ごとに分離した
+// 技の実体は moveId でキャラのスペックから引く。
+// Ver.6 の hasHit が多段ラッチと「弾を生成済みか」を兼用していたので役割ごとに分離した
 export type AttackState = {
   moveId: string;
   frame: number;
-  // すでに当てた回数。spec.maxHits に達したら打ち止め
   hitsLanded: number;
-  // 次に当てられるようになるまでの残りフレーム（多段技の間隔）
+  // 次に当てられるまでの残りフレーム（多段技の間隔）
   hitCooldown: number;
   projectileSpawned: boolean;
-  // 空中技の着地硬直の残りフレーム。-1 = まだ着地していない
+  // 空中技の着地硬直の残り。-1 = まだ着地していない
   landingFrames: number;
 };
 
@@ -100,10 +96,8 @@ export type Fighter = CharacterDefinition & {
   attack: AttackState | null;
   hitstun: number;
   hitstunElapsed: number;
-  // 必殺技の再使用までの残りフレーム（技ごとの cooldown から設定される）
   specialCooldown: number;
-  // 溜めコマンドの状態。溜め中の方向、溜めたフレーム数、方向キーを離してからの猶予。
-  // 溜め技を持たないキャラでは常に null / 0
+  // 溜めコマンドの状態。溜め技を持たないキャラでは常に null / 0
   chargeDirection: CommandDirection | null;
   chargeFrames: number;
   chargeGrace: number;
@@ -119,8 +113,7 @@ export type Projectile = {
   vx: number;
   frame: number;
   onScreen: boolean;
-  // 発生時の技のダメージと削りを持たせる。弾は技より長生きするので、
-  // 当たった時点で「どの技から出たか」を遡らずに済ませる
+  // 弾は技より長生きするので、発生時のダメージと削りを持たせる
   damage: number;
   chipDamage: number;
 };
@@ -254,8 +247,7 @@ export const setAssetStatus = (
   assetsFailed: boolean
 ): GameState => ({ ...state, assetsReady, assetsFailed });
 
-// Fighter が抱えるのは id/name/color の射影だけ。スペック本体は毎フレームの
-// cloneFighter で複製したくないので、必要なときにレジストリから引く
+// スペック本体は毎フレーム複製したくないので、必要なときにレジストリから引く
 const getDefinition = (id: CharacterId): CharacterDefinition => {
   const { name, color } = getCharacterSpec(id);
   return { id, name, color };
@@ -415,8 +407,7 @@ export type Hitbox = {
   bottom: number;
 };
 
-// やられ判定の矩形。寸法はキャラごと（characters/<id>/index.ts の hurtbox）で、
-// しゃがみでは crouchHeight に縮む
+// やられ判定の矩形。寸法はキャラごと（characters/<id>/index.ts の hurtbox）
 export const getHitbox = (fighter: Fighter): Hitbox => {
   const { width, height, crouchHeight } = getCharacterSpec(fighter.id).hurtbox;
   const currentHeight = fighter.crouching ? crouchHeight : height;
@@ -459,8 +450,8 @@ const hasProjectileFor = (state: GameState, fighter: Fighter): boolean =>
     (projectile) => projectile.owner === fighter.id && projectile.onScreen
   );
 
-// 攻撃を開始できたら true。攻撃中・硬直中・空中は不可。
-// 必殺技はクールダウン中も不可で、飛び道具はさらに自分の弾が画面内に残っていれば不可
+// 攻撃を開始できたら true。攻撃中・硬直中・空中、必殺技はクールダウン中も不可。
+// 飛び道具はさらに自分の弾が画面内に残っていれば不可
 const startAttack = (
   state: GameState,
   fighter: Fighter,
@@ -508,13 +499,11 @@ export const attackIsActive = (
 ): boolean =>
   attack.frame >= spec.startup && attack.frame < spec.startup + spec.active;
 
-// このフレームにヒットを取れるか。単発技（maxHits=1 / hitInterval=0）では
-// 1回当てた時点で hitsLanded が上限に達するので、Ver.6 の hasHit ラッチと同じ挙動になる
+// 単発技は1回当てた時点で上限に達するので Ver.6 の hasHit ラッチと同じ挙動になる
 const canLandHit = (attack: AttackState, spec: MoveSpec): boolean =>
   attack.hitCooldown === 0 && attack.hitsLanded < spec.maxHits;
 
-// 攻撃判定が出ているフレームか。空中回転技は持続を固定フレームにせず
-// 「打ち上がってから着地するまでずっと」とする
+// 空中回転技は持続を固定フレームにせず「打ち上がってから着地するまで」とする
 const moveIsActive = (fighter: Fighter, spec: MoveSpec): boolean => {
   const attack = fighter.attack;
   if (attack === null) {
@@ -528,8 +517,7 @@ const moveIsActive = (fighter: Fighter, spec: MoveSpec): boolean => {
 };
 
 // 打撃の攻撃判定矩形。体の矩形を hitbox の設定ぶん広げる。
-// spread='both' は左右両方に伸ばす（回転技）、topOffset が負値なら体より上へ伸びる。
-// maxHits=0 の技は打撃判定を持たない（弾だけで当てる飛び道具）ので null
+// maxHits=0 の技は打撃判定を持たない（弾だけで当てる）ので null
 const getAttackBox = (fighter: Fighter, spec: MoveSpec): Hitbox | null => {
   if (spec.maxHits === 0) {
     return null;
@@ -564,9 +552,7 @@ const addGuardEffect = (state: GameState, x: number, y: number): void => {
 // 根性値（体力が減ると防御力が上がる）
 // ----------------------------------------------------------------
 
-// 本家スト2は体力144で、残り31から下でダメージが段階的に割り引かれる。
-// 体力100のこのゲームでは 144:100 で換算し、残り22から割引を始める
-// （31 × 100/144 ≒ 21.5）。1段の幅も 5 × 100/144 ≒ 3.5 に合わせてある。
+// 本家は体力144で残り31から割引が始まるので、144:100 で換算して残り22から。
 // これがないと最後の一撃も最初と同じ威力で入り、決着が唐突になる
 const DEFENSE_BANDS: readonly { minHp: number; rate: number }[] = [
   { minHp: 22, rate: 1 },
@@ -594,9 +580,8 @@ type HitOptions = {
   projectileHit: boolean;
 };
 
-// ヒット/ガードの共通処理。ガードなら技の削りダメージ（通常技は0）+ 小ノックバック、
-// 素通しならヒットスタン付与。どちらも根性値で割り引かれ、
-// ヒットストップで全体を一瞬止める
+// ヒット/ガードの共通処理。ガードなら技の削り（通常技は0）+ 小ノックバック、
+// 素通しならヒットスタン付与。どちらも根性値で割り引かれる
 const applyHit = (state: GameState, options: HitOptions): void => {
   const {
     attacker,
@@ -609,8 +594,7 @@ const applyHit = (state: GameState, options: HitOptions): void => {
   } = options;
   const guarding = isGuarding(target, attacker, state.input);
   const baseDamage = guarding ? chipDamage : damage;
-  // 端数はダメージ側を切り上げる（本家の「割引値としては切り捨て」と同じ）。
-  // 割引率はヒット前の残り体力で決まる
+  // 端数はダメージ側を切り上げる（本家の「割引値としては切り捨て」と同じ）
   const finalDamage =
     baseDamage === 0
       ? 0
@@ -693,9 +677,7 @@ const getFighter = (state: GameState, id: CharacterId): Fighter | null => {
   return null;
 };
 
-// 進行中の攻撃を解決する。打撃は canLandHit が許すフレームでヒット判定を取り
-// （単発技は maxHits=1 で1回だけ、多段技は hitInterval おきに）、
-// 飛び道具は発生フレームで弾を生成する
+// 打撃は canLandHit が許すフレームでヒット判定、飛び道具は発生フレームで弾を生成する
 const resolveAttacks = (
   state: GameState,
   attacker: Fighter,
@@ -760,7 +742,7 @@ const chooseCpuAction = (state: GameState, random: () => number): CpuAction => {
       projectile.onScreen &&
       Math.abs(projectile.x - cpuX) <= 200
   );
-  // 抽選表はキャラごと（characters/<id>/index.ts の cpu）
+  // 抽選表はキャラごと
   const probabilities = getCharacterSpec(state.cpu.id).cpu;
   if (incomingProjectile && random() < probabilities.projectileDodge) {
     return 'jump';
@@ -819,8 +801,7 @@ const applyGravity = (fighter: Fighter): void => {
   }
 };
 
-// 攻撃モーション中の移動。通常技は動かない（Ver.6 と同じ）が、空中回転技は
-// 発生フレームで打ち上がり、滞空中は向いている方向へ前進する
+// 通常技は攻撃中に動かない。空中回転技だけ発生フレームで打ち上がり、滞空中は前進する
 const applyMoveMotion = (fighter: Fighter): void => {
   const attack = fighter.attack;
   if (attack === null) {
@@ -863,11 +844,8 @@ const updatePlayer = (
   const direction = inputDirection(input);
   fighter.crouching = input.down && fighter.grounded;
 
-  // 必殺技のコマンド判定はジャンプ・通常技より先。↑ を含むコマンド（溜め技）は
-  // ここで justPressed('ArrowUp') を消費するので、通常ジャンプが暴発しない。
-  // コマンドが成立していれば startAttack が失敗（クールダウン中など）しても
-  // ジャンプには落とさない。「必殺技を出すつもりの入力でジャンプが出る」のが
-  // 一番避けたい暴発なので、その場合は何も起きないのが正しい
+  // ジャンプより先に判定して justPressed('ArrowUp') を消費する（ジャンプの暴発防止）。
+  // 成立したら startAttack が失敗してもジャンプには落とさない
   const special = matchSpecialCommand(
     fighter,
     getCharacterSpec(fighter.id).specials,
@@ -914,8 +892,7 @@ const updateCpu = (
 ): void => {
   const action = fighter.aiAction;
   if (action === 'special') {
-    // CPU はキー入力を持たないので溜めコマンドを満たせない＝溜め免除で直接発動する。
-    // 抽選間隔が20〜40Fあり、技ごとの cooldown も両者に等しく効くので不公平にはならない
+    // CPU は溜め免除で直接発動する（抽選間隔20〜40Fと cooldown が抑制になる）
     const special = getCharacterSpec(fighter.id).specials[0];
     if (special === undefined || !startAttack(state, fighter, special.id)) {
       fighter.aiAction = 'approach';
@@ -964,9 +941,7 @@ const updateFighter = (
     fighter.specialCooldown -= 1;
   }
 
-  // 溜めはヒットスタン中・攻撃中でも積む（本家と同じで、切り返しに溜めが間に合う）。
-  // CPU は入力を持たない＝溜め免除なので対象外。ここで呼ぶとプレイヤーの入力を
-  // CPU が食ってしまう
+  // 溜めはヒットスタン中・攻撃中でも積む。CPU は入力を持たない＝溜め免除なので対象外
   if (fighter.isPlayer) {
     const charged = updateChargeState(
       fighter,
@@ -1107,13 +1082,10 @@ const advanceAttack = (fighter: Fighter): void => {
     attack.hitCooldown -= 1;
   }
 
-  // 空中回転技は着地するまで frame を進め続け（＝アニメが回り、判定も出続ける）、
-  // 接地を検知してから着地硬直に入る。本家の着地硬直と同じ構造
+  // 着地するまで frame を進め続け（アニメが回り判定も出続ける）、接地後に着地硬直へ
   const behavior = settings.behavior;
   if (behavior !== null && behavior.kind === 'airborneSpin') {
     if (attack.landingFrames >= 0) {
-      // 接地を検知したフレームで landingRecovery を積み、そこから
-      // ちょうど landingRecovery フレームで解放する
       attack.landingFrames -= 1;
       if (attack.landingFrames <= 0) {
         fighter.attack = null;
@@ -1361,9 +1333,7 @@ export const advanceGame = (
   return next;
 };
 
-// ----------------------------------------------------------------
-// スプライト選択は sprites.ts に移動（Ver.7）。互換のためここから再公開する
-// ----------------------------------------------------------------
+// スプライト選択は sprites.ts に移動（Ver.7）。互換のため再公開する
 
 export {
   getCharacterIconPath,

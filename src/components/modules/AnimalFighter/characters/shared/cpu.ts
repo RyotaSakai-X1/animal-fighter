@@ -1,5 +1,4 @@
-// CPU の行動抽選テーブルの共通ベース。Ver.6 の CPU_PROBABILITIES と同一の値で、
-// 固有のテーブルを与えないキャラはこれを使う＝CPU の挙動は Ver.6 と一致する。
+// Ver.6 の CPU_PROBABILITIES と同一。固有テーブルを持たないキャラが使う。
 
 import type { CpuProbabilityTable } from '../../moves/types';
 

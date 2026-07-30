@@ -1,6 +1,5 @@
-// スプライト選択。描画側 useAnimalFighter.ts から使う純ヘルパーで、
-// 「どの画像を、どの大きさで、どこを基準に描くか」だけを決める。
-// タイミング（アニメの何枚目か）もここで計算し、レンダラには持たせない。
+// スプライト選択。どの画像をどの大きさで描くかを決める純ヘルパー。
+// アニメのタイミングもここで計算し、レンダラには持たせない。
 
 import { getCharacterSpec, getMoveSpec, getSpecialMove } from './characters';
 import type { CharacterId } from './characters/ids';
@@ -34,9 +33,7 @@ export type PoseContext = {
  * A KO loser alone uses `down`; attacks take precedence over hitstun, jump,
  * crouch, and guard; hitstun keeps the fighter in the neutral `fight` pose
  * because no separate hurt sprite exists in the asset set.
- *
- * 攻撃中のポーズは技のスペック（MoveSpec.pose）が決めるので、キャラごとに
- * 技を差し替えてもこの関数を触らずに済む。
+ * 攻撃中のポーズは MoveSpec.pose が決めるので、技を差し替えてもここは触らない。
  */
 export const getPoseImagePath = (
   fighter: Fighter,
@@ -93,13 +90,8 @@ export const getCombatSpriteSpec = (pose: CombatPose): CombatSpriteSpec => {
 
 export type SpecialSpriteFrame = { moveId: string; index: number };
 
-/**
- * 必殺技の専用アニメを描くフレームなら {技id, 画像番号} を返す。null なら
- * 呼び出し側は通常の getPoseImagePath 経路にフォールバックする。
- *
- * 回っているのは滞空中だけで、地上の溜めモーションと着地硬直は通常ポーズ
- * （MoveSpec.pose）に任せる。
- */
+// 専用アニメを描くフレームなら {技id, 画像番号} を返す。null なら通常ポーズ経路へ。
+// 回るのは滞空中だけで、地上の溜めと着地硬直は MoveSpec.pose に任せる
 export const getSpecialSpriteFrame = (
   fighter: Fighter
 ): SpecialSpriteFrame | null => {
@@ -115,8 +107,7 @@ export const getSpecialSpriteFrame = (
     return null;
   }
   const { frameCount, interval } = special.animation;
-  // 発生フレームを 0 起点にする。技の絶対フレームで割ると、離陸した瞬間に
-  // 循環の途中（例: 4枚目）が1フレームだけ表示されてしまう
+  // 発生フレームを 0 起点にする（絶対フレームだと離陸直後に循環の途中が1F覗く）
   const spinFrame = attack.frame - special.startup;
   return {
     moveId: attack.moveId,
@@ -126,17 +117,8 @@ export const getSpecialSpriteFrame = (
 
 export type SpecialSpriteSpec = CombatSpriteSpec & { offsetY: number };
 
-/**
- * 必殺技アニメの描画サイズ。
- *
- * 逆さスピニングバードキックの画像（386x291）は脚と回転の軌跡が広い範囲を占めるので、
- * 立ちポーズと同じ 180px 高で描くとキャラ自体が一段大きく見えてしまう。
- * 立ち fight.png を 180px 高、回転画像を各サイズで実寸レンダリングして頭の大きさを
- * 見比べた結果、155px 高（幅205px）で立ちポーズと同じ体格に見える。
- *
- * 頭が画像の下端＝身体の最下点なので、bottom-center アンカーを fighter.y に
- * 合わせるだけで位置は合う（オフセット不要）。
- */
+// 回転画像は脚と軌跡が広いので180px高だと体格が大きく見える（実寸比較で155pxに決めた）。
+// 頭が画像の下端＝最下点なので bottom-center アンカーのままで位置が合う
 export const getSpecialSpriteSpec = (_moveId: string): SpecialSpriteSpec => ({
   height: 155,
   width: null,
@@ -149,25 +131,16 @@ export const getSpecialSpriteSpec = (_moveId: string): SpecialSpriteSpec => ({
 // ----------------------------------------------------------------
 
 export type ChargeMeter = {
-  // 0.0〜1.0 が溜め中、1.0 で完成
   progress: number;
   ready: boolean;
-  // 完成した瞬間からの経過フレームを 0.0〜1.0 に正規化した値。
-  // 1.0 未満の間だけ広がって消えるパルスを描く
+  // 完成からの経過を 0.0〜1.0 に正規化。1.0 未満の間だけパルスを描く
   pulse: number;
-  // クールダウン中は暗く描き、「溜まっているのに出ない」状態を見せる
   onCooldown: boolean;
   color: string;
 };
 
-/**
- * 足元の溜めゲージの表示値。溜め技を持たないキャラと CPU（溜め免除なので
- * カウンタが動かない）は null＝非表示。
- *
- * 本家 SF2 のタメ技には溜め完了の表示が一切ないが、このゲームでは溜め不足の失敗が
- * 完全に無音（しゃがみがジャンプを抑制するので何も起きない）なので、
- * 何が起きているかを見せるために可視化している。
- */
+// 足元の溜めゲージの表示値。溜め技を持たないキャラと CPU（溜め免除）は null＝非表示。
+// 本家に溜め完了の表示はないが、このゲームでは溜め不足の失敗が完全に無音なので見せる
 export const getChargeMeter = (fighter: Fighter): ChargeMeter | null => {
   const spec = getCharacterSpec(fighter.id);
   if (!fighter.isPlayer || getChargeDirections(spec.specials).length === 0) {

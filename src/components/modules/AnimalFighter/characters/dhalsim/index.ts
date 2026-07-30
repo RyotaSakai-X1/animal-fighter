@@ -7,7 +7,7 @@ export const dhalsim: CharacterSpec = {
   id: 'dhalsim',
   name: 'GIBBON DHALSIM',
   color: '#d4a017',
-  // 初代 遠立ち中Ｐ 6/7/7・強Ｋ 12/12/13（持続は8で打ち止め）。最遅・リーチ極長・低威力。描画幅は最大だが腕が長いだけなので体幅は細い
+  // 初代 中Ｐ 6/7/7・強Ｋ 12/12/13。最遅・リーチ極長・低威力。描画幅は最大だが腕が長いだけなので体幅は細い
   hurtbox: { width: 52, height: 132, crouchHeight: 66 },
   punch: makeNormal('punch', {
     startup: 6,

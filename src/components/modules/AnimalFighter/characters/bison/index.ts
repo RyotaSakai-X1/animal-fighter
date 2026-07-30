@@ -7,7 +7,7 @@ export const bison: CharacterSpec = {
   id: 'bison',
   name: 'BISON BUFFALO',
   color: '#7b2fbe',
-  // 初代（ベガ）遠立ち中Ｐ 7/4/6・強Ｋ 6/6/21。重い
+  // 初代（ベガ）中Ｐ 7/4/6・強Ｋ 6/6/21。重い
   hurtbox: { width: 58, height: 134, crouchHeight: 67 },
   punch: makeNormal('punch', {
     startup: 7,

@@ -48,8 +48,7 @@ const COLORS = {
 const IMAGE_PATHS = Array.from(
   new Set([
     ...Object.values(spriteUrls).flatMap((sprites) => Object.values(sprites)),
-    // キャラ固有の必殺技アニメもここに載せないと Vite がバンドルせず、
-    // assetsReady のカウントも合わなくなる
+    // ここに載せないと Vite がバンドルせず assetsReady のカウントも合わない
     ...Object.values(specialSpriteUrls).flatMap((moves) =>
       Object.values(moves ?? {}).flat()
     ),
@@ -96,7 +95,7 @@ const SOUND_SETTINGS: Record<
     volume: 0.06
   },
   ko: { type: 'sawtooth', start: 180, end: 55, duration: 0.55, volume: 0.1 },
-  // 溜め完成の合図。上昇音＝準備完了。溜め直すたびに鳴るので音量は控えめにする
+  // 溜め完成の合図。溜め直すたびに鳴るので音量は控えめに
   charge: { type: 'triangle', start: 660, end: 990, duration: 0.09, volume: 0.05 }
 };
 
@@ -343,9 +342,7 @@ const drawHud = (
   );
 };
 
-// 足元の溜めゲージ。溜め中は円弧が伸び、完成すると満円＋広がるパルス、
-// 完成後は満円が脈打って残る。クールダウン中は暗くする。
-// 頭上はガードの弧が使っているので足元に置く（溜め中はしゃがみで背が低い）
+// 足元の溜めゲージ。頭上はガードの弧が使っているので足元に置く
 const drawChargeMeter = (
   ctx: CanvasRenderingContext2D,
   fighter: Fighter
@@ -361,11 +358,9 @@ const drawChargeMeter = (
   ctx.lineWidth = 4;
   ctx.beginPath();
   if (meter.ready) {
-    // 完成後はゆっくり脈打つ満円
     const breath = 1 + Math.sin(meter.pulse * Math.PI) * 0.08;
     ctx.arc(fighter.x, GROUND_Y - 6, radius * breath, 0, Math.PI * 2);
   } else {
-    // 真上から時計回りに伸びる円弧
     const start = -Math.PI / 2;
     ctx.arc(
       fighter.x,
@@ -405,8 +400,7 @@ const drawFighter = (
     roundEnd: state.roundEnd,
     guarding
   });
-  // 必殺技の専用アニメがあるフレームはそちらを優先する。ただし KO ポーズには譲る
-  // （タイムアップで空中必殺技中の敗者が down にならないのを防ぐ）
+  // 専用アニメを優先するが KO ポーズには譲る（タイムアップで敗者が down にならないため）
   const specialFrame = pose === 'down' ? null : getSpecialSpriteFrame(fighter);
   const specialUrl =
     specialFrame === null
@@ -835,9 +829,7 @@ const getAudioContextConstructor = (): typeof AudioContext | undefined => {
   return window.AudioContext ?? windowWithWebkitAudio.webkitAudioContext;
 };
 
-// React 側へ渡す「対戦の見出し情報」。毎フレームの状態は React 境界を越えさせないが、
-// 技表の表示にはどのキャラが出ているかだけ必要なので、画面遷移とキャラ確定の
-// タイミングだけ setState する（60fps では再描画を起こさない）
+// 技表に必要な情報だけ React へ渡す。毎フレームの状態は境界を越えさせない
 export type MatchSummary = {
   screen: GameScreen;
   playerId: CharacterId | null;
@@ -877,8 +869,7 @@ export const useAnimalFighter = () => {
     let audioContext: AudioContext | null = null;
     let matchKey = `${EMPTY_MATCH.screen}||`;
 
-    // 値が変わったフレームだけ setState する。ここで毎フレーム呼ぶと
-    // 60fps で React ツリーが再描画されてしまうので、必ず差分を見る
+    // 差分があるフレームだけ setState する（毎フレームだと 60fps で再描画される）
     const syncMatchSummary = (state: GameState): void => {
       const playerId = state.player?.id ?? null;
       const cpuId = state.cpu?.id ?? null;

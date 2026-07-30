@@ -7,7 +7,7 @@ export const vega: CharacterSpec = {
   id: 'vega',
   name: 'TIGER VEGA',
   color: '#f28c28',
-  // 初代（バルログ）遠立ち中Ｐ 5/4/7・強Ｋ 7/6/19。速くて爪のリーチが長い、体は細い
+  // 初代（バルログ）中Ｐ 5/4/7・強Ｋ 7/6/19。爪のリーチが長く体は細い
   hurtbox: { width: 50, height: 132, crouchHeight: 66 },
   punch: makeNormal('punch', {
     startup: 5,

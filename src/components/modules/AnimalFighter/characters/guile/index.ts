@@ -7,7 +7,7 @@ export const guile: CharacterSpec = {
   id: 'guile',
   name: 'GORILLA GUILE',
   color: '#5a7d2a',
-  // 初代 遠立ち中Ｐ 3/2/13・強Ｋ 6/5/24。発生最速だが硬直が長い
+  // 初代 中Ｐ 3/2/13・強Ｋ 6/5/24。発生最速だが硬直が長い
   hurtbox: { width: 56, height: 134, crouchHeight: 67 },
   punch: makeNormal('punch', {
     startup: 3,

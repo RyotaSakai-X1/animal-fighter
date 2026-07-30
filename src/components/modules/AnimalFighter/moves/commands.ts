@@ -1,5 +1,4 @@
-// 必殺技のコマンド入力の認識。溜め状態の管理と、コマンド成立判定の2つを持つ。
-// どちらも fighter と入力だけを見るので、ユニットテストから直接叩ける。
+// 必殺技のコマンド入力の認識。溜め状態の管理とコマンド成立判定。
 
 import type { Fighter, GameInput, GameKey, InputState } from '../logic';
 import type {
@@ -9,15 +8,11 @@ import type {
   SpecialMove
 } from './types';
 
-// 溜め時間。本家の溜め技は 55〜60F だが、1ラウンド99秒・体力100 のこのゲームでは
-// 40F（0.67秒）でも「溜めた」感触が出て実用に耐える
+// 本家の溜め技は 55〜60F だが、このゲームでは 40F（0.67秒）で足りる
 export const CHARGE_REQUIRED_FRAMES = 40;
-// 方向キーを離してから溜めが生き残る猶予。キーボードで ↓→↑ と繋ぐと ↓ の離しが
-// ↑ の押しより 2〜5F 先行する（30〜80ms）ので、取りこぼさないよう 10F 確保する。
-// 10F では横に 30px しか動けないので「歩いてから必殺技」には転用できない
+// 方向キーを離してからの猶予。↓→↑ と繋ぐと離しが 2〜5F 先行するため
 export const CHARGE_GRACE_FRAMES = 10;
-// 溜め完成の瞬間に出すパルス演出の長さ。カウンタの上限をこの分だけ伸ばしておくことで
-// 「完成してから何フレーム経ったか」が専用のエフェクト配列なしで分かる
+// 完成パルスの長さ。上限をこの分伸ばすと「完成からの経過」が専用の状態なしで分かる
 export const CHARGE_PULSE_FRAMES = 8;
 export const CHARGE_COUNTER_MAX = CHARGE_REQUIRED_FRAMES + CHARGE_PULSE_FRAMES;
 
@@ -34,8 +29,7 @@ const BUTTON_KEYS: Record<CommandButton, GameKey> = {
   special: 'KeyC'
 };
 
-// 押しっぱなし判定に使う InputState のフィールド名。
-// special が 'projectile' なのは Ver.6 からのフィールド名を引き継いでいるため
+// 押しっぱなし判定用。special が 'projectile' なのは Ver.6 のフィールド名を引き継いでいる
 const BUTTON_HELD: Record<CommandButton, keyof InputState> = {
   punch: 'punch',
   kick: 'kick',
@@ -62,8 +56,7 @@ const BUTTON_LABELS: Record<CommandButton, string> = {
   special: 'C'
 };
 
-// コマンドを画面表示用の文字列にする。キャラごとに技が増えても操作説明を
-// 書き足さずに済むよう、技表はこの関数からデータで組み立てる
+// 技表の表示用。操作説明を書き足さずに済むようデータから組み立てる
 export const describeCommand = (command: CommandSpec): string => {
   if (command.kind === 'buttonOnly') {
     return BUTTON_LABELS[command.trigger];
@@ -71,8 +64,7 @@ export const describeCommand = (command: CommandSpec): string => {
   return `${DIRECTION_LABELS[command.charge]}溜め → ${BUTTON_LABELS[command.hold]}+${DIRECTION_LABELS[command.trigger]}`;
 };
 
-// そのキャラが溜めを必要とする方向の一覧。溜めカウンタは1本しか持たないので、
-// 別方向を入れ始めたら溜め直しになる
+// 溜めカウンタは1本だけなので、別方向を入れ始めたら溜め直しになる
 export const getChargeDirections = (
   specials: readonly SpecialMove[]
 ): readonly CommandDirection[] => {
@@ -86,9 +78,7 @@ export const getChargeDirections = (
   return directions;
 };
 
-// 溜め状態を1フレーム更新する。溜めが「ちょうど完成した」フレームだけ true を返し、
-// 呼び出し側が効果音イベントを積む。攻撃中・ヒットスタン中でも溜め続けられるよう
-// updateFighter の early return より前で呼ぶ
+// 溜めを1フレーム進め、ちょうど完成したフレームだけ true を返す（呼び出し側がSEを鳴らす）
 export const updateChargeState = (
   fighter: Fighter,
   input: InputState,
@@ -112,13 +102,11 @@ export const updateChargeState = (
     fighter.chargeFrames += 1;
     return fighter.chargeFrames === CHARGE_REQUIRED_FRAMES;
   }
-  // 猶予を1減らすだけで、このフレームの溜めはまだ生きている。溜めの破棄を翌フレームに
-  // 遅らせるのが要点。updateChargeState は updatePlayer のコマンド判定より前に走るので、
-  // 同じフレームで破棄すると「猶予の最終フレームに入力しても成立しない」ことになる
+  // 破棄は翌フレームに遅らせる。コマンド判定より前に走るので、同フレームで破棄すると
+  // 猶予の最終フレームの入力を取りこぼす
   if (fighter.chargeGrace > 0) {
     fighter.chargeGrace -= 1;
-    // 猶予中もカウンタを上限まで進める。完成直後に方向キーを離しても
-    // 完成パルスの演出（chargeFrames - CHARGE_REQUIRED_FRAMES）が進み切る
+    // 猶予中も上限まで進める。離しても完成パルスが進み切るように
     if (
       fighter.chargeFrames >= CHARGE_REQUIRED_FRAMES &&
       fighter.chargeFrames < CHARGE_COUNTER_MAX
@@ -138,13 +126,12 @@ const matchesCommand = (
   input: GameInput
 ): boolean => {
   if (command.kind === 'buttonOnly') {
-    // Ver.6 と同じく、しゃがみ中は単押しの必殺技は出ない
+    // Ver.6 と同じくしゃがみ中は出ない
     return (
       !fighter.crouching && input.justPressed.has(BUTTON_KEYS[command.trigger])
     );
   }
-  // 溜めコマンド。ボタンを押しっぱなしのまま方向キーを押した瞬間に成立する。
-  // しゃがみを条件から外すのは、↓ 溜めがそのまましゃがみ状態になるため
+  // ボタンを押しっぱなしで方向キーを押した瞬間に成立。↓溜めはしゃがみ状態なので除外しない
   return (
     fighter.chargeDirection === command.charge &&
     fighter.chargeFrames >= command.chargeFrames &&
@@ -153,7 +140,7 @@ const matchesCommand = (
   );
 };
 
-// コマンドが成立した必殺技を返す。specials の並び順＝優先度で、最初にマッチしたものを採用する
+// specials の並び順＝優先度。最初にマッチしたものを返す
 export const matchSpecialCommand = (
   fighter: Fighter,
   specials: readonly SpecialMove[],

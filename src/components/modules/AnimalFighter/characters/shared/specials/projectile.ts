@@ -1,6 +1,5 @@
-// Ver.6 までの「Cキーで飛び道具」をそのまま必殺技スロットに載せたもの。
-// 固有必殺技をまだ用意していない9キャラが据え置きで使う。
-// 数値は Ver.6 の ATTACKS.projectile と spawnProjectile から一切変えていない。
+// Ver.6 の「Cキーで飛び道具」を必殺技スロットに載せたもの。固有技のない9キャラが使う。
+// 数値は Ver.6 から変えていない（削りのみ属性として明示）。
 
 import type { SpecialMove } from '../../../moves/types';
 
@@ -12,9 +11,9 @@ export const DEFAULT_PROJECTILE: SpecialMove = {
   active: 1,
   recovery: 20,
   damage: 12,
-  // 飛び道具はガードしても削られる（本家スト2の波動拳と同じ）
+  // 本家の波動拳と同じくガードしても削る
   chipDamage: 3,
-  // 打撃判定は持たず弾だけで当てるので maxHits: 0。hitbox は使われないが型のために置く
+  // 弾だけで当てるので打撃判定なし。hitbox は型のためのダミー
   hitbox: { reach: 0, spread: 'forward', topOffset: 15, bottomInset: 18 },
   maxHits: 0,
   hitInterval: 0,

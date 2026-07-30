@@ -7,7 +7,7 @@ export const blanka: CharacterSpec = {
   id: 'blanka',
   name: 'SHISHI BLANKA',
   color: '#58a832',
-  // 初代 遠立ち中Ｐ 5/2/6・強Ｋ 6/11/20（持続は8で打ち止め）。速い・中庸・前傾姿勢で背が低い
+  // 初代 中Ｐ 5/2/6・強Ｋ 6/11/20。速い・中庸・前傾姿勢で背が低い
   hurtbox: { width: 60, height: 124, crouchHeight: 62 },
   punch: makeNormal('punch', {
     startup: 5,

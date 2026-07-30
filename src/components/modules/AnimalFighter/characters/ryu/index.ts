@@ -8,7 +8,7 @@ export const ryu: CharacterSpec = {
   id: 'ryu',
   name: 'KUMA-RYU',
   color: '#8b5a2b',
-  // 初代 遠立ち中Ｐ 4/4/6・強Ｋ 3/4/17。全キャラの基準（判定も 54x130 の基準値）
+  // 初代 遠立ち中Ｐ 4/4/6・強Ｋ 3/4/17。全キャラの基準
   hurtbox: DEFAULT_HURTBOX,
   punch: makeNormal('punch', {
     startup: 4,

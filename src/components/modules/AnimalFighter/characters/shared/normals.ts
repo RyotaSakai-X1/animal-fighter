@@ -1,11 +1,9 @@
-// 通常技（Z=パンチ / X=キック）の共通ベース。
-// 技IDは全キャラ共通の固定2枠で、中身だけキャラごとに差し替わる。こうしておくと
-// 「Zキーでどの技を出すか」の解決が不要になり、キー入力の分岐が増えない。
+// 通常技は全キャラ共通の固定2枠で、中身だけキャラごとに差し替わる
+// （キー入力の分岐を増やさないため）。
 
 import type { MoveSpec } from '../../moves/types';
 
-// 判定の形は全キャラ共通で、reach だけキャラ別に上書きする。
-// topOffset / bottomInset は Ver.6 の getAttackBox の値そのまま
+// 判定の形は共通で reach だけキャラ別。値は Ver.6 の getAttackBox のまま
 const PUNCH_SHAPE = {
   spread: 'forward',
   topOffset: 15,
@@ -37,7 +35,7 @@ export const makeNormal = (
   active: stats.active,
   recovery: stats.recovery,
   damage: stats.damage,
-  // 通常技はガードされたら削らない（本家スト2と同じ）
+  // 本家スト2と同じく通常技のガードは削らない
   chipDamage: 0,
   hitbox: {
     ...(kind === 'punch' ? PUNCH_SHAPE : KICK_SHAPE),

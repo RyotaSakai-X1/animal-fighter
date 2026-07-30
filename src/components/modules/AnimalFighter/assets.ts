@@ -205,9 +205,8 @@ export const spriteUrls: Record<CharacterId, Record<Pose, string>> = {
   }
 };
 
-// キャラ固有の必殺技アニメ。spriteUrls は全キャラ必須の Record なので、
-// 一部のキャラだけが持つアニメはここに分ける。
-// キーは技ID、値は表示順に並べたフレーム画像
+// キャラ固有の必殺技アニメ。spriteUrls は全キャラ必須の Record なのでここに分ける。
+// キーは技ID、値は表示順のフレーム画像
 export const specialSpriteUrls: Partial<
   Record<CharacterId, Record<string, readonly string[]>>
 > = {

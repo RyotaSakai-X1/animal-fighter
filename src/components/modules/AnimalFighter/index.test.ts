@@ -1,8 +1,5 @@
-// バレル（index.ts）の公開 API が実際に解決できることを確認する。
-// index.ts は ./logic と ./sprites / ./characters を重ねて `export *` しており、
-// logic.ts が sprites / characters を再公開しているため名前が重複する。
-// 同じ宣言を指している限り問題ないが、片方が別の宣言に差し替わると
-// ES モジュールの仕様で「曖昧な名前」として静かに欠落するので、実物を触って確かめる。
+// バレルの公開 API が実際に解決できるか。重複した `export *` は、別々の宣言を指すと
+// ES 仕様で「曖昧な名前」として静かに欠落するので実物を触って確かめる。
 
 import * as AnimalFighterModule from './index';
 

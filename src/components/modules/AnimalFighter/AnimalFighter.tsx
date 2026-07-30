@@ -3,8 +3,7 @@ import { getCharacterSpec, getMoveList } from './characters';
 import type { CharacterId } from './characters/ids';
 import { useAnimalFighter } from './useAnimalFighter';
 
-// キャラ固有の必殺技コマンドはここに書かない。技が増えるたびに膨れ上がるので、
-// 対戦中は左右の余白に出る技表（MoveListPanel）で見せる
+// キャラ固有の必殺技コマンドはここに書かない（MoveListPanel で見せる）
 const CONTROL_KEYS = [
   { key: '← →', label: '移動' },
   { key: '↑', label: 'ジャンプ' },
@@ -22,8 +21,7 @@ type MoveListPanelProps = {
   className?: string;
 };
 
-// 対戦中に出る技表。中身は CharacterSpec から組み立てるので、
-// キャラに技を足してもこのコンポーネントは触らなくてよい
+// 対戦中に出る技表。中身は CharacterSpec から組み立てる
 export const MoveListPanel: FC<MoveListPanelProps> = ({
   id,
   side,
@@ -89,8 +87,7 @@ export const AnimalFighter: FC = () => {
         </p>
       </header>
 
-      {/* 技表は canvas の枠外・各キャラ側の余白に置く。列は常に確保して
-          対戦開始時に canvas の幅が変わらないようにする */}
+      {/* 列は常に確保して、対戦開始時に canvas の幅が変わらないようにする */}
       <div className='flex items-start justify-center gap-3'>
         <div
           className={`hidden w-[150px] shrink-0 lg:block ${inMatch ? '' : 'invisible'}`}
@@ -117,7 +114,7 @@ export const AnimalFighter: FC = () => {
         </div>
       </div>
 
-      {/* 狭い画面では左右に余白がないので canvas の下に並べる */}
+      {/* 狭い画面では canvas の下に並べる */}
       {inMatch && (
         <div className='mt-3 grid grid-cols-2 gap-3 lg:hidden'>
           <MoveListPanel id={match.playerId} side='player' />

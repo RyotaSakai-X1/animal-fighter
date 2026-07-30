@@ -1,5 +1,4 @@
-// 技とキャラクターのデータ定義。キャラ別データ（characters/）とエンジン（logic.ts）の
-// 共通語彙になる。数値の単位は時間=フレーム(60fps)、距離=canvas内部解像度のpx。
+// 技とキャラのデータ定義。単位は時間=フレーム(60fps)、距離=canvas内部解像度のpx。
 
 import type { CharacterId } from '../characters/ids';
 import type { MoveBehavior } from './behaviors';
@@ -8,9 +7,8 @@ import type { MoveBehavior } from './behaviors';
 // 攻撃判定の形
 // ----------------------------------------------------------------
 
-// spread: forward=向いている方向のみ（通常技）/ both=左右両方（回転技）
-// topOffset: 体の矩形の上端からの下げ幅。負値なら体より上へ伸びる（頭上に出る判定）
-// bottomInset: 体の矩形の下端からの上げ幅
+// spread: forward=向いている方向のみ / both=左右両方（回転技）
+// topOffset は負値なら体より上へ伸びる。bottomInset は下端からの上げ幅
 export type HitboxShape = {
   reach: number;
   spread: 'forward' | 'both';
@@ -22,7 +20,7 @@ export type HitboxShape = {
 // 技
 // ----------------------------------------------------------------
 
-// 描画に使うポーズ。固有アニメを持つ技は sprites.ts 側で差し替わる
+// 固有アニメを持つ技は sprites.ts 側で差し替わる
 export type MovePose = 'punch' | 'kick' | 'crouch' | 'fight';
 
 export type MoveSpec = {
@@ -33,12 +31,10 @@ export type MoveSpec = {
   active: number;
   recovery: number;
   damage: number;
-  // ガードされたときに与えるダメージ。本家スト2では通常技のガードはダメージ0で、
-  // 削りがあるのは一部の必殺技だけなので、通常技は 0 にする
+  // ガードされたときのダメージ。本家スト2と同じく通常技は 0
   chipDamage: number;
   hitbox: HitboxShape;
-  // maxHits=1 / hitInterval=0 が単発技（Ver.6 の hasHit ラッチと同じ挙動）。
-  // maxHits=0 は打撃判定を持たない技＝弾だけで当てる飛び道具
+  // maxHits=1 が単発技、0 は打撃判定を持たない技（弾だけで当てる）
   maxHits: number;
   hitInterval: number;
   behavior: MoveBehavior | null;
@@ -47,8 +43,7 @@ export type MoveSpec = {
 export type CommandButton = 'punch' | 'kick' | 'special';
 export type CommandDirection = 'up' | 'down' | 'left' | 'right';
 
-// 必殺技のコマンド。判別可能ユニオンなので、順次入力（↓↓+C など）を足すときは
-// メンバーを1つと commands.ts の分岐を1つ増やすだけで済む
+// 順次入力（↓↓+C など）を足すときはメンバーと commands.ts の分岐を1つ増やす
 export type CommandSpec =
   | { kind: 'buttonOnly'; trigger: CommandButton }
   | {
@@ -59,7 +54,7 @@ export type CommandSpec =
       hold: CommandButton;
     };
 
-// ぱらぱら漫画アニメ。interval フレームごとに frameCount 枚を循環させる
+// interval フレームごとに frameCount 枚を循環させる
 export type AnimationSpec = { frameCount: number; interval: number };
 
 export type SpecialMove = MoveSpec & {
@@ -72,8 +67,7 @@ export type SpecialMove = MoveSpec & {
 // CPU の行動抽選
 // ----------------------------------------------------------------
 
-// 'special' はそのキャラの specials[0] を出す指示。技の中身はキャラ側が決めるので、
-// 抽選テーブルは「必殺技を撃つ」以上のことを知らなくて済む
+// 'special' はそのキャラの specials[0] を出す指示（技の中身は抽選表が知らなくてよい）
 export type CpuAction =
   | 'approach'
   | 'special'
@@ -86,8 +80,7 @@ export type CpuAction =
 
 export type CpuWeight = readonly [CpuAction, number];
 
-// プレイヤーとの距離帯ごとの重み付き抽選テーブル。各表の合計は 1.0。
-// 難易度・性格の調整はこの数値をいじる
+// 距離帯ごとの重み付き抽選テーブル。各表の合計は 1.0。難易度調整はここ
 export type CpuProbabilityTable = {
   far: readonly CpuWeight[];
   mid: readonly CpuWeight[];
@@ -99,7 +92,6 @@ export type CpuProbabilityTable = {
 // キャラクター
 // ----------------------------------------------------------------
 
-// やられ判定の寸法。キャラの体格に合わせて調整する
 export type HurtboxSpec = {
   width: number;
   height: number;
@@ -118,6 +110,5 @@ export type CharacterSpec = {
   cpu: CpuProbabilityTable;
 };
 
-// 選択画面とファイター生成が使う最小情報。CharacterSpec の射影で、
-// Fighter がスペック全体を抱えて毎フレーム複製されるのを避けるためにこの形で持つ
+// 選択画面とファイター生成が使う最小情報。Fighter がスペック全体を複製しないよう射影する
 export type CharacterDefinition = Pick<CharacterSpec, 'id' | 'name' | 'color'>;

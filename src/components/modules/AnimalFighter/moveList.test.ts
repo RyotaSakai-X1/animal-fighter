@@ -1,5 +1,4 @@
-// 対戦画面の脇に出る技表。キャラごとに技が増えても操作説明を書き足さずに済むよう、
-// 表示内容は CharacterSpec から組み立てている。その組み立てが崩れないことを固定する。
+// 技表の表示内容は CharacterSpec から組み立てている。その組み立てが崩れないことを固定する。
 
 import { renderToStaticMarkup } from 'react-dom/server';
 import { createElement } from 'react';

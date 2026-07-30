@@ -7,7 +7,7 @@ export const zangief: CharacterSpec = {
   id: 'zangief',
   name: 'BURU-DOG ZANGIEF',
   color: '#c0392b',
-  // 初代 遠立ち中Ｐ 5/3/5・強Ｋ 5/8/11。最高威力・最短リーチ・体が厚くて背が高い
+  // 初代 中Ｐ 5/3/5・強Ｋ 5/8/11。最高威力・最短リーチ・背が高い
   hurtbox: { width: 64, height: 138, crouchHeight: 70 },
   punch: makeNormal('punch', {
     startup: 5,
