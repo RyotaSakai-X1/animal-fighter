@@ -30,7 +30,7 @@ describe('move list', () => {
     expect(special?.name).toBe('スピニングバードキック');
     expect(special?.command).toBe('↓溜め → C+↑');
     // 多段技はダメージ×段数で見せる
-    expect(special?.damage).toBe('8×3');
+    expect(special?.damage).toBe('7×3');
     // 春麗は飛び道具を持たないので C 単押しの技は出ない
     expect(moves.some((move) => move.command === 'C')).toBe(false);
   });

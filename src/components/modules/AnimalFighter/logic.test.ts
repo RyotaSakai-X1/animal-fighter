@@ -806,14 +806,36 @@ describe('Animal Fighter special moves', () => {
     expect(held.events).not.toContain('charge');
   });
 
-  test('rises higher than a normal jump', () => {
+  test('rises higher than a normal jump but not so high it skips the strike zone', () => {
+    // 通常ジャンプの頂点を実測して比較する（マジックナンバーを置かない）
+    let jump = advanceGame(startChunliFight(300, 700), createInput(['ArrowUp']));
+    let jumpApex = GROUND_Y;
+    for (let index = 0; index < 60; index += 1) {
+      jump = advanceGame(jump, createInput());
+      jumpApex = Math.min(jumpApex, jump.player?.y ?? GROUND_Y);
+    }
+
     const fired = pressUpWithSpecial(
       holdDown(startChunliFight(300, 700), CHARGE_REQUIRED_FRAMES)
     );
     const { apexY } = runUntilAttackEnds(fired);
 
-    // 通常ジャンプの頂点は約 161px（GROUND_Y - 239）
-    expect(apexY).toBeLessThan(GROUND_Y - 200);
+    expect(apexY).toBeLessThan(jumpApex);
+    // ただし上げすぎない。逆さで脚が上なので、立ち相手に届くのは高度130px以下に
+    // いる間だけ。頂点が高すぎるとその区間を一瞬で通り抜けて当たらなくなる
+    expect(GROUND_Y - apexY).toBeLessThan(210);
+  });
+
+  test('travels forward faster than walking so it reads as a moving move', () => {
+    const fired = pressUpWithSpecial(
+      holdDown(startChunliFight(300, 700), CHARGE_REQUIRED_FRAMES)
+    );
+    const startX = fired.player?.x ?? 0;
+    const { state: finished } = runUntilAttackEnds(fired);
+    const travelled = (finished.player?.x ?? 0) - startX;
+
+    // 通常ジャンプの横移動は 43F × AIR_SPEED 2.5 ≒ 107px。それより遠くまで進む
+    expect(travelled).toBeGreaterThan(130);
   });
 
   test('stays airborne and active until landing, then plays the landing recovery', () => {
@@ -831,6 +853,10 @@ describe('Animal Fighter special moves', () => {
   });
 
   test('lands multiple hits without exceeding maxHits', () => {
+    const spec = getCharacterSpec('chunli').specials[0];
+    if (spec === undefined) {
+      throw new Error('Chun-Li must have a special.');
+    }
     const fired = pressUpWithSpecial(
       holdDown(startChunliFight(), CHARGE_REQUIRED_FRAMES)
     );
@@ -842,9 +868,40 @@ describe('Animal Fighter special moves', () => {
       maxHitsSeen = Math.max(maxHitsSeen, state.player?.attack?.hitsLanded ?? 0);
     }
 
-    // 立ち相手には上昇時と下降時で2段入る（8ダメージ×2）
-    expect(maxHitsSeen).toBe(2);
-    expect(state.cpu?.hp).toBe(84);
+    // 近距離では全3段入る（7ダメージ×3）
+    expect(maxHitsSeen).toBe(spec.maxHits);
+    expect(state.cpu?.hp).toBe(100 - spec.damage * spec.maxHits);
+  });
+
+  test('connects from every practical starting distance', () => {
+    // 前進が遅かった頃（1.2px/F）は開始距離の半分近くで空振りしていた
+    for (const gap of [40, 80, 120, 160, 200, 240]) {
+      const fired = pressUpWithSpecial(
+        holdDown(startChunliFight(300, 300 + gap), CHARGE_REQUIRED_FRAMES)
+      );
+      const { state: finished } = runUntilAttackEnds(fired);
+      expect(
+        finished.cpu?.hp,
+        `gap ${gap} must connect`
+      ).toBeLessThan(100);
+    }
+  });
+
+  test('crosses the opponent up at point blank range', () => {
+    const fired = pressUpWithSpecial(
+      holdDown(startChunliFight(300, 360), CHARGE_REQUIRED_FRAMES)
+    );
+    const { state: landed } = runUntilAttackEnds(fired);
+    // 振り向きは「接地・非攻撃」のニュートラルフレームで再計算されるので、
+    // 技が終わった次のフレームまで進める（Ver.6 のサイドスイッチと同じ仕組み）
+    const finished = advanceGame(landed, createInput());
+    const { player, cpu } = getFighters(finished);
+
+    // 前進165px がノックバックを上回るので相手を追い抜いて裏に着地する。
+    // 通り抜けながら当てられるのは hitbox の spread:'both' のおかげ
+    expect(player.x).toBeGreaterThan(cpu.x);
+    expect(player.facing).toBe(-1);
+    expect(cpu.hp).toBeLessThan(100);
   });
 
   test('cycles the four spin frames every three frames while airborne', () => {
