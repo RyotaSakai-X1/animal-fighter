@@ -14,8 +14,14 @@ import {
   getSpecialMove
 } from './characters';
 import type { CharacterId } from './characters/ids';
+import {
+  getChargeDirections,
+  matchSpecialCommand,
+  updateChargeState
+} from './moves/commands';
 import type {
   CharacterDefinition,
+  CommandDirection,
   CpuAction,
   MoveSpec
 } from './moves/types';
@@ -77,10 +83,19 @@ export { DEFAULT_CPU_TABLE as CPU_PROBABILITIES } from './characters/shared/cpu'
 // 型定義（ファイター・画面・入力・ゲーム全体の状態）
 // ----------------------------------------------------------------
 
+// 進行中の攻撃。技の実体は moveId でキャラのスペックから引く（通常技=punch/kick、
+// 必殺技=キャラ固有のid）。Ver.6 の hasHit は「打撃の1回ヒットラッチ」と
+// 「飛び道具を生成済みか」を兼用していたので、Ver.7 で役割ごとに分離した
 export type AttackState = {
-  type: AttackType;
+  moveId: string;
   frame: number;
-  hasHit: boolean;
+  // すでに当てた回数。spec.maxHits に達したら打ち止め
+  hitsLanded: number;
+  // 次に当てられるようになるまでの残りフレーム（多段技の間隔）
+  hitCooldown: number;
+  projectileSpawned: boolean;
+  // 空中技の着地硬直の残りフレーム。-1 = まだ着地していない
+  landingFrames: number;
 };
 
 export type Fighter = CharacterDefinition & {
@@ -97,7 +112,13 @@ export type Fighter = CharacterDefinition & {
   attack: AttackState | null;
   hitstun: number;
   hitstunElapsed: number;
-  projectileCooldown: number;
+  // 必殺技の再使用までの残りフレーム（技ごとの cooldown から設定される）
+  specialCooldown: number;
+  // 溜めコマンドの状態。溜め中の方向、溜めたフレーム数、方向キーを離してからの猶予。
+  // 溜め技を持たないキャラでは常に null / 0
+  chargeDirection: CommandDirection | null;
+  chargeFrames: number;
+  chargeGrace: number;
   blocking: boolean;
   aiAction: CpuAction;
   aiFrames: number;
@@ -156,7 +177,7 @@ export type GameInput = InputState & {
   justPressed: ReadonlySet<GameKey>;
 };
 
-export type SoundEvent = 'hit' | 'guard' | 'projectile' | 'ko';
+export type SoundEvent = 'hit' | 'guard' | 'projectile' | 'ko' | 'charge';
 
 export type GameState = {
   screen: GameScreen;
@@ -263,7 +284,10 @@ const createFighter = (id: CharacterId, isPlayer: boolean): Fighter => ({
   attack: null,
   hitstun: 0,
   hitstunElapsed: 0,
-  projectileCooldown: 0,
+  specialCooldown: 0,
+  chargeDirection: null,
+  chargeFrames: 0,
+  chargeGrace: 0,
   blocking: false,
   aiAction: 'idle',
   aiFrames: 1
@@ -287,7 +311,11 @@ const resetFighter = (
   attack: null,
   hitstun: 0,
   hitstunElapsed: 0,
-  projectileCooldown: 0,
+  specialCooldown: 0,
+  // 溜めはラウンドをまたいで持ち越さない
+  chargeDirection: null,
+  chargeFrames: 0,
+  chargeGrace: 0,
   blocking: false,
   aiAction: fighter.isPlayer ? fighter.aiAction : 'idle',
   aiFrames: fighter.isPlayer ? fighter.aiFrames : 1
@@ -439,11 +467,12 @@ const hasProjectileFor = (state: GameState, fighter: Fighter): boolean =>
     (projectile) => projectile.owner === fighter.id && projectile.onScreen
   );
 
-// 攻撃を開始できたら true。攻撃中・硬直中・空中、飛び道具は画面内残存/クールダウン中なら不可
+// 攻撃を開始できたら true。攻撃中・硬直中・空中は不可。
+// 必殺技はクールダウン中も不可で、飛び道具はさらに自分の弾が画面内に残っていれば不可
 const startAttack = (
   state: GameState,
   fighter: Fighter,
-  moveId: AttackType
+  moveId: string
 ): boolean => {
   const spec = getMoveSpec(fighter.id, moveId);
   if (
@@ -454,19 +483,28 @@ const startAttack = (
   ) {
     return false;
   }
-  const spawnsProjectile = spec.behavior?.kind === 'projectile';
+  const special = getSpecialMove(fighter.id, moveId);
+  if (special !== undefined && fighter.specialCooldown > 0) {
+    return false;
+  }
   if (
-    spawnsProjectile &&
-    (fighter.projectileCooldown > 0 || hasProjectileFor(state, fighter))
+    spec.behavior?.kind === 'projectile' &&
+    hasProjectileFor(state, fighter)
   ) {
     return false;
   }
-  fighter.attack = { type: moveId, frame: 0, hasHit: false };
+  fighter.attack = {
+    moveId,
+    frame: 0,
+    hitsLanded: 0,
+    hitCooldown: 0,
+    projectileSpawned: false,
+    landingFrames: -1
+  };
   fighter.crouching = false;
   fighter.blocking = false;
-  if (spawnsProjectile) {
-    fighter.projectileCooldown =
-      getSpecialMove(fighter.id, moveId)?.cooldown ?? 0;
+  if (special !== undefined) {
+    fighter.specialCooldown = special.cooldown;
   }
   return true;
 };
@@ -477,6 +515,25 @@ export const attackIsActive = (
   spec: MoveSpec
 ): boolean =>
   attack.frame >= spec.startup && attack.frame < spec.startup + spec.active;
+
+// このフレームにヒットを取れるか。単発技（maxHits=1 / hitInterval=0）では
+// 1回当てた時点で hitsLanded が上限に達するので、Ver.6 の hasHit ラッチと同じ挙動になる
+const canLandHit = (attack: AttackState, spec: MoveSpec): boolean =>
+  attack.hitCooldown === 0 && attack.hitsLanded < spec.maxHits;
+
+// 攻撃判定が出ているフレームか。空中回転技は持続を固定フレームにせず
+// 「打ち上がってから着地するまでずっと」とする
+const moveIsActive = (fighter: Fighter, spec: MoveSpec): boolean => {
+  const attack = fighter.attack;
+  if (attack === null) {
+    return false;
+  }
+  const behavior = spec.behavior;
+  if (behavior !== null && behavior.kind === 'airborneSpin') {
+    return attack.frame >= spec.startup && !fighter.grounded;
+  }
+  return attackIsActive(attack, spec);
+};
 
 // 打撃の攻撃判定矩形。体の矩形を hitbox の設定ぶん広げる。
 // spread='both' は左右両方に伸ばす（回転技）、topOffset が負値なら体より上へ伸びる。
@@ -547,7 +604,9 @@ const applyHit = (state: GameState, options: HitOptions): void => {
   }
 
   if (!projectileHit && attacker.attack !== null) {
-    attacker.attack.hasHit = true;
+    const spec = getMoveSpec(attacker.id, attacker.attack.moveId);
+    attacker.attack.hitsLanded += 1;
+    attacker.attack.hitCooldown = spec?.hitInterval ?? 0;
   }
   state.hitStopFrames = HITSTOP_FRAMES;
 };
@@ -611,21 +670,21 @@ const resolveAttacks = (
   if (attack === null) {
     return;
   }
-  const settings = getMoveSpec(attacker.id, attack.type);
+  const settings = getMoveSpec(attacker.id, attack.moveId);
   if (settings === undefined) {
     return;
   }
 
   const behavior = settings.behavior;
   if (behavior !== null && behavior.kind === 'projectile') {
-    if (attack.frame === behavior.spawnFrame && !attack.hasHit) {
+    if (attack.frame === behavior.spawnFrame && !attack.projectileSpawned) {
       spawnProjectile(state, attacker, behavior);
-      attack.hasHit = true;
+      attack.projectileSpawned = true;
     }
     return;
   }
 
-  if (attackIsActive(attack, settings) && !attack.hasHit) {
+  if (moveIsActive(attacker, settings) && canLandHit(attack, settings)) {
     const box = getAttackBox(attacker, settings);
     const targetBox = getHitbox(target);
     if (box !== null && rectanglesOverlap(box, targetBox)) {
@@ -724,6 +783,35 @@ const applyGravity = (fighter: Fighter): void => {
   }
 };
 
+// 攻撃モーション中の移動。通常技は動かない（Ver.6 と同じ）が、空中回転技は
+// 発生フレームで打ち上がり、滞空中は向いている方向へ前進する
+const applyMoveMotion = (fighter: Fighter): void => {
+  const attack = fighter.attack;
+  if (attack === null) {
+    return;
+  }
+  const spec = getMoveSpec(fighter.id, attack.moveId);
+  const behavior = spec?.behavior;
+  if (
+    spec === undefined ||
+    behavior === undefined ||
+    behavior === null ||
+    behavior.kind !== 'airborneSpin'
+  ) {
+    return;
+  }
+  if (attack.frame === spec.startup && fighter.grounded) {
+    fighter.vy = behavior.riseVelocity;
+    fighter.grounded = false;
+  }
+  if (!fighter.grounded) {
+    fighter.x = Math.max(
+      MIN_X,
+      Math.min(MAX_X, fighter.x + fighter.facing * behavior.drift)
+    );
+  }
+};
+
 type FighterUpdateOptions = {
   fighter: Fighter;
   opponent: Fighter;
@@ -739,6 +827,18 @@ const updatePlayer = (
   const direction = inputDirection(input);
   fighter.crouching = input.down && fighter.grounded;
 
+  // 必殺技のコマンド判定はジャンプ・通常技より先。↑ を含むコマンド（溜め技）は
+  // ここで justPressed('ArrowUp') を消費するので、通常ジャンプが暴発しない
+  const special = matchSpecialCommand(
+    fighter,
+    getCharacterSpec(fighter.id).specials,
+    input
+  );
+  if (special !== null && startAttack(state, fighter, special.id)) {
+    fighter.vx = 0;
+    return;
+  }
+
   if (
     input.justPressed.has('ArrowUp') &&
     fighter.grounded &&
@@ -753,8 +853,6 @@ const updatePlayer = (
       startAttack(state, fighter, 'punch');
     } else if (input.justPressed.has('KeyX')) {
       startAttack(state, fighter, 'kick');
-    } else if (input.justPressed.has('KeyC')) {
-      startAttack(state, fighter, 'projectile');
     }
   }
 
@@ -819,8 +917,22 @@ const updateFighter = (
 ): void => {
   const { fighter, opponent, input } = options;
   fighter.blocking = false;
-  if (fighter.projectileCooldown > 0) {
-    fighter.projectileCooldown -= 1;
+  if (fighter.specialCooldown > 0) {
+    fighter.specialCooldown -= 1;
+  }
+
+  // 溜めはヒットスタン中・攻撃中でも積む（本家と同じで、切り返しに溜めが間に合う）。
+  // CPU は入力を持たない＝溜め免除なので対象外。ここで呼ぶとプレイヤーの入力を
+  // CPU が食ってしまう
+  if (fighter.isPlayer) {
+    const charged = updateChargeState(
+      fighter,
+      input,
+      getChargeDirections(getCharacterSpec(fighter.id).specials)
+    );
+    if (charged) {
+      state.events.push('charge');
+    }
   }
 
   if (fighter.hitstun > 0) {
@@ -835,6 +947,7 @@ const updateFighter = (
   }
 
   if (fighter.attack !== null) {
+    applyMoveMotion(fighter);
     applyGravity(fighter);
     return;
   }
@@ -940,14 +1053,37 @@ const advanceAttack = (fighter: Fighter): void => {
   if (fighter.attack === null) {
     return;
   }
-  const settings = getMoveSpec(fighter.id, fighter.attack.type);
+  const settings = getMoveSpec(fighter.id, fighter.attack.moveId);
   if (settings === undefined) {
     fighter.attack = null;
     return;
   }
-  fighter.attack.frame += 1;
+  const attack = fighter.attack;
+  if (attack.hitCooldown > 0) {
+    attack.hitCooldown -= 1;
+  }
+
+  // 空中回転技は着地するまで frame を進め続け（＝アニメが回り、判定も出続ける）、
+  // 接地を検知してから着地硬直に入る。本家の着地硬直と同じ構造
+  const behavior = settings.behavior;
+  if (behavior !== null && behavior.kind === 'airborneSpin') {
+    if (attack.landingFrames >= 0) {
+      attack.landingFrames -= 1;
+      if (attack.landingFrames < 0) {
+        fighter.attack = null;
+      }
+      return;
+    }
+    attack.frame += 1;
+    if (fighter.grounded && attack.frame > settings.startup) {
+      attack.landingFrames = behavior.landingRecovery;
+    }
+    return;
+  }
+
+  attack.frame += 1;
   const total = settings.startup + settings.active + settings.recovery;
-  if (fighter.attack.frame >= total) {
+  if (attack.frame >= total) {
     fighter.attack = null;
   }
 };
@@ -1186,12 +1322,18 @@ export const advanceGame = (
 export {
   getCharacterIconPath,
   getCharacterImagePath,
+  getChargeMeter,
   getCombatSpriteSpec,
-  getPoseImagePath
+  getPoseImagePath,
+  getSpecialSpriteFrame,
+  getSpecialSpriteSpec
 } from './sprites';
 export type {
+  ChargeMeter,
   CombatPose,
   CombatSpriteSpec,
   Pose,
-  PoseContext
+  PoseContext,
+  SpecialSpriteFrame,
+  SpecialSpriteSpec
 } from './sprites';

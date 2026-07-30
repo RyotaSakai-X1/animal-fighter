@@ -28,6 +28,10 @@ import chunliIconUrl from '@/assets/animal-fighter/chunli/icon.png';
 import chunliJumpUrl from '@/assets/animal-fighter/chunli/jump.png';
 import chunliKickUrl from '@/assets/animal-fighter/chunli/kick.png';
 import chunliPunchUrl from '@/assets/animal-fighter/chunli/punch.png';
+import chunliSbk1Url from '@/assets/animal-fighter/chunli/spinning-bird-kick/spinning-bird-kick-1.png';
+import chunliSbk2Url from '@/assets/animal-fighter/chunli/spinning-bird-kick/spinning-bird-kick-2.png';
+import chunliSbk3Url from '@/assets/animal-fighter/chunli/spinning-bird-kick/spinning-bird-kick-3.png';
+import chunliSbk4Url from '@/assets/animal-fighter/chunli/spinning-bird-kick/spinning-bird-kick-4.png';
 import dhalsimCrouchUrl from '@/assets/animal-fighter/dhalsim/crouch.png';
 import dhalsimDownUrl from '@/assets/animal-fighter/dhalsim/down.png';
 import dhalsimFightUrl from '@/assets/animal-fighter/dhalsim/fight.png';
@@ -198,6 +202,22 @@ export const spriteUrls: Record<CharacterId, Record<Pose, string>> = {
     jump: vegaJumpUrl,
     crouch: vegaCrouchUrl,
     down: vegaDownUrl
+  }
+};
+
+// キャラ固有の必殺技アニメ。spriteUrls は全キャラ必須の Record なので、
+// 一部のキャラだけが持つアニメはここに分ける。
+// キーは技ID、値は表示順に並べたフレーム画像
+export const specialSpriteUrls: Partial<
+  Record<CharacterId, Record<string, readonly string[]>>
+> = {
+  chunli: {
+    spinningBirdKick: [
+      chunliSbk1Url,
+      chunliSbk2Url,
+      chunliSbk3Url,
+      chunliSbk4Url
+    ]
   }
 };
 

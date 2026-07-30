@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import {
   MENU_BACKGROUND_URL,
+  specialSpriteUrls,
   spriteUrls,
   STAGE_DEFINITIONS,
   titleLogoUrl
@@ -13,8 +14,11 @@ import {
   createInitialGameState,
   getCharacterIconPath,
   getCharacterImagePath,
+  getChargeMeter,
   getCombatSpriteSpec,
   getPoseImagePath,
+  getSpecialSpriteFrame,
+  getSpecialSpriteSpec,
   GROUND_Y,
   isGuarding,
   SELECT_COLUMNS,
@@ -42,6 +46,11 @@ const COLORS = {
 const IMAGE_PATHS = Array.from(
   new Set([
     ...Object.values(spriteUrls).flatMap((sprites) => Object.values(sprites)),
+    // キャラ固有の必殺技アニメもここに載せないと Vite がバンドルせず、
+    // assetsReady のカウントも合わなくなる
+    ...Object.values(specialSpriteUrls).flatMap((moves) =>
+      Object.values(moves ?? {}).flat()
+    ),
     ...STAGE_DEFINITIONS.map((stage) => stage.url),
     titleLogoUrl
   ])
@@ -84,7 +93,9 @@ const SOUND_SETTINGS: Record<
     duration: 0.2,
     volume: 0.06
   },
-  ko: { type: 'sawtooth', start: 180, end: 55, duration: 0.55, volume: 0.1 }
+  ko: { type: 'sawtooth', start: 180, end: 55, duration: 0.55, volume: 0.1 },
+  // 溜め完成の合図。上昇音＝準備完了。溜め直すたびに鳴るので音量は控えめにする
+  charge: { type: 'triangle', start: 660, end: 990, duration: 0.09, volume: 0.05 }
 };
 
 const isGameKey = (code: string): code is GameKey =>
@@ -330,6 +341,50 @@ const drawHud = (
   );
 };
 
+// 足元の溜めゲージ。溜め中は円弧が伸び、完成すると満円＋広がるパルス、
+// 完成後は満円が脈打って残る。クールダウン中は暗くする。
+// 頭上はガードの弧が使っているので足元に置く（溜め中はしゃがみで背が低い）
+const drawChargeMeter = (
+  ctx: CanvasRenderingContext2D,
+  fighter: Fighter
+): void => {
+  const meter = getChargeMeter(fighter);
+  if (meter === null) {
+    return;
+  }
+  const radius = 26;
+  ctx.save();
+  ctx.globalAlpha = meter.onCooldown ? 0.25 : 0.85;
+  ctx.strokeStyle = meter.color;
+  ctx.lineWidth = 4;
+  ctx.beginPath();
+  if (meter.ready) {
+    // 完成後はゆっくり脈打つ満円
+    const breath = 1 + Math.sin(meter.pulse * Math.PI) * 0.08;
+    ctx.arc(fighter.x, GROUND_Y - 6, radius * breath, 0, Math.PI * 2);
+  } else {
+    // 真上から時計回りに伸びる円弧
+    const start = -Math.PI / 2;
+    ctx.arc(
+      fighter.x,
+      GROUND_Y - 6,
+      radius,
+      start,
+      start + Math.PI * 2 * meter.progress
+    );
+  }
+  ctx.stroke();
+
+  if (meter.ready && meter.pulse < 1) {
+    ctx.globalAlpha = (1 - meter.pulse) * 0.7;
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.arc(fighter.x, GROUND_Y - 6, radius + meter.pulse * 26, 0, Math.PI * 2);
+    ctx.stroke();
+  }
+  ctx.restore();
+};
+
 const drawFighter = (
   ctx: CanvasRenderingContext2D,
   images: ReadonlyMap<string, HTMLImageElement>,
@@ -340,7 +395,29 @@ const drawFighter = (
   if (opponent === null) {
     return;
   }
+  drawChargeMeter(ctx, fighter);
+
   const guarding = isGuarding(fighter, opponent, state.input);
+  // 必殺技の専用アニメがあるフレームはそちらを優先する
+  const specialFrame = getSpecialSpriteFrame(fighter);
+  const specialUrl =
+    specialFrame === null
+      ? undefined
+      : specialSpriteUrls[fighter.id]?.[specialFrame.moveId]?.[
+          specialFrame.index
+        ];
+  if (specialFrame !== null && specialUrl !== undefined) {
+    const spec = getSpecialSpriteSpec(specialFrame.moveId);
+    const anchor = spec.anchor === 'ground' ? GROUND_Y : fighter.y;
+    drawImageAnchored(ctx, images, specialUrl, fighter.x, {
+      height: spec.height,
+      width: spec.width,
+      anchorY: anchor + spec.offsetY,
+      flip: fighter.facing < 0
+    });
+    return;
+  }
+
   const pose = getPoseImagePath(fighter, {
     opponent,
     roundEnd: state.roundEnd,

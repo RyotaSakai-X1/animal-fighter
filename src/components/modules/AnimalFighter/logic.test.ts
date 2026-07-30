@@ -8,21 +8,28 @@ import {
   EMPTY_INPUT,
   getCharacterIconPath,
   getCharacterImagePath,
+  getChargeMeter,
   getCombatSpriteSpec,
   getInitialCpuIndex,
   getHitbox,
   getPoseImagePath,
+  getSpecialSpriteFrame,
   GROUND_Y,
   isGuarding,
   rectanglesOverlap,
   SELECT_SLOT_COUNT,
   setAssetStatus,
   stepCpuIndex,
+  type AttackState,
   type Fighter,
   type GameInput,
   type GameKey,
   type GameState
 } from './logic';
+import {
+  CHARGE_GRACE_FRAMES,
+  CHARGE_REQUIRED_FRAMES
+} from './moves/commands';
 
 const ryuDefinition = CHARACTER_DEFINITIONS[0];
 const kenDefinition = CHARACTER_DEFINITIONS[1];
@@ -45,10 +52,28 @@ const createFighter = (overrides: Partial<Fighter> = {}): Fighter => ({
   attack: null,
   hitstun: 0,
   hitstunElapsed: 0,
-  projectileCooldown: 0,
+  specialCooldown: 0,
+  chargeDirection: null,
+  chargeFrames: 0,
+  chargeGrace: 0,
   blocking: false,
   aiAction: 'idle',
   aiFrames: 1,
+  ...overrides
+});
+
+// 進行中の攻撃。AttackState にフィールドが増えてもテスト側の記述が増えないよう
+// ここで既定値を集約する
+const createAttack = (
+  moveId: string,
+  overrides: Partial<AttackState> = {}
+): AttackState => ({
+  moveId,
+  frame: 0,
+  hitsLanded: 0,
+  hitCooldown: 0,
+  projectileSpawned: false,
+  landingFrames: -1,
   ...overrides
 });
 
@@ -118,21 +143,24 @@ describe('Animal Fighter image selection', () => {
     ).toBe('down');
     expect(
       getPoseImagePath(
-        createFighter({ attack: { type: 'punch', frame: 12, hasHit: false } }),
+        createFighter({ attack: createAttack('punch', { frame: 12 }) }),
         baseContext
       )
     ).toBe('punch');
     expect(
       getPoseImagePath(
         createFighter({
-          attack: { type: 'projectile', frame: 20, hasHit: true }
+          attack: createAttack('projectile', {
+            frame: 20,
+            projectileSpawned: true
+          })
         }),
         baseContext
       )
     ).toBe('punch');
     expect(
       getPoseImagePath(
-        createFighter({ attack: { type: 'kick', frame: 12, hasHit: false } }),
+        createFighter({ attack: createAttack('kick', { frame: 12 }) }),
         baseContext
       )
     ).toBe('kick');
@@ -532,5 +560,274 @@ describe('Animal Fighter game logic', () => {
     expect(result.roundEnd?.kind).toBe('timeout');
     expect(result.player?.roundWins).toBe(1);
     expect(result.cpu?.roundWins).toBe(0);
+  });
+});
+
+// ----------------------------------------------------------------
+// Ver.7: キャラ別の必殺技（春麗のスピニングバードキック）
+// ----------------------------------------------------------------
+
+describe('Animal Fighter special moves', () => {
+  const opponent = createFighter({
+    ...kenDefinition,
+    isPlayer: false,
+    x: 570,
+    facing: -1
+  });
+  const chunliDefinition = CHARACTER_DEFINITIONS[2];
+  if (chunliDefinition === undefined || chunliDefinition.id !== 'chunli') {
+    throw new Error('Chun-Li must be the third character in selection order.');
+  }
+
+  // 春麗をプレイヤーにした戦闘可能状態。CPU（ケン）は動かないよう固定される
+  const startChunliFight = (playerX = 300, cpuX = 366): GameState =>
+    startActiveFight({ ...chunliDefinition, x: playerX }, { x: cpuX });
+
+  const holdDown = (state: GameState, frames: number): GameState => {
+    let next = state;
+    for (let index = 0; index < frames; index += 1) {
+      next = advanceGame(next, { ...createInput(), down: true });
+    }
+    return next;
+  };
+
+  // C を押しっぱなしのまま ↑ を押す＝スピニングバードキックの発動入力
+  const pressUpWithSpecial = (state: GameState, down = true): GameState =>
+    advanceGame(state, {
+      ...createInput(['ArrowUp']),
+      down,
+      projectile: true
+    });
+
+  const runUntilAttackEnds = (
+    state: GameState,
+    limit = 200
+  ): { state: GameState; frames: number; apexY: number } => {
+    let next = state;
+    let frames = 0;
+    let apexY = GROUND_Y;
+    while (next.player?.attack != null && frames < limit) {
+      next = advanceGame(next, createInput());
+      frames += 1;
+      apexY = Math.min(apexY, next.player?.y ?? GROUND_Y);
+    }
+    return { state: next, frames, apexY };
+  };
+
+  test('fires the spinning bird kick after a full down charge', () => {
+    const charged = holdDown(startChunliFight(), CHARGE_REQUIRED_FRAMES);
+    expect(charged.player?.chargeFrames).toBe(CHARGE_REQUIRED_FRAMES);
+    expect(charged.player?.chargeDirection).toBe('down');
+
+    const fired = pressUpWithSpecial(charged);
+    expect(fired.player?.attack?.moveId).toBe('spinningBirdKick');
+  });
+
+  test('consumes the up press so no normal jump comes out', () => {
+    const fired = pressUpWithSpecial(
+      holdDown(startChunliFight(), CHARGE_REQUIRED_FRAMES)
+    );
+
+    // 通常ジャンプなら初速 JUMP_VELOCITY が入って離陸しているはず
+    expect(fired.player?.vy).toBe(0);
+    expect(fired.player?.grounded).toBe(true);
+  });
+
+  test('does nothing at all when the charge is too short', () => {
+    const short = pressUpWithSpecial(holdDown(startChunliFight(), 20));
+
+    expect(short.player?.attack).toBeNull();
+    expect(short.player?.vy).toBe(0);
+    expect(short.player?.grounded).toBe(true);
+  });
+
+  test('keeps the charge alive through the grace window after releasing down', () => {
+    const charged = holdDown(startChunliFight(), CHARGE_REQUIRED_FRAMES);
+
+    // ↓ を離してから CHARGE_GRACE_FRAMES 枚目のフレームまでは発動できる。
+    // ここでは 9F 空回ししてから 10F 目に入力する
+    let released = charged;
+    for (let index = 0; index < CHARGE_GRACE_FRAMES - 1; index += 1) {
+      released = advanceGame(released, createInput());
+    }
+    expect(pressUpWithSpecial(released, false).player?.attack?.moveId).toBe(
+      'spinningBirdKick'
+    );
+
+    // 猶予を1フレーム超えると溜めが破棄される
+    let expired = charged;
+    for (let index = 0; index < CHARGE_GRACE_FRAMES + 1; index += 1) {
+      expired = advanceGame(expired, createInput());
+    }
+    expect(expired.player?.chargeFrames).toBe(0);
+    expect(expired.player?.chargeDirection).toBeNull();
+    // 溜めが切れているので ↑ は通常ジャンプになる
+    const jumped = pressUpWithSpecial(expired, false);
+    expect(jumped.player?.attack).toBeNull();
+    expect(jumped.player?.grounded).toBe(false);
+  });
+
+  test('pushes the charge sound once, on the completing frame only', () => {
+    const almost = holdDown(startChunliFight(), CHARGE_REQUIRED_FRAMES - 1);
+    expect(almost.events).not.toContain('charge');
+
+    const completed = holdDown(almost, 1);
+    expect(completed.events).toContain('charge');
+
+    // 押し続けても鳴り続けない
+    const held = holdDown(completed, 5);
+    expect(held.events).not.toContain('charge');
+  });
+
+  test('rises higher than a normal jump', () => {
+    const fired = pressUpWithSpecial(
+      holdDown(startChunliFight(300, 700), CHARGE_REQUIRED_FRAMES)
+    );
+    const { apexY } = runUntilAttackEnds(fired);
+
+    // 通常ジャンプの頂点は約 161px（GROUND_Y - 239）
+    expect(apexY).toBeLessThan(GROUND_Y - 200);
+  });
+
+  test('stays airborne and active until landing, then plays the landing recovery', () => {
+    const fired = pressUpWithSpecial(
+      holdDown(startChunliFight(300, 700), CHARGE_REQUIRED_FRAMES)
+    );
+    const { state: finished, frames } = runUntilAttackEnds(fired);
+
+    // 発生10F + 滞空 + 着地硬直14F。滞空時間に合わせて伸びるので固定値ではない
+    expect(frames).toBeGreaterThan(60);
+    expect(frames).toBeLessThan(100);
+    expect(finished.player?.attack).toBeNull();
+    expect(finished.player?.grounded).toBe(true);
+    expect(finished.player?.y).toBe(GROUND_Y);
+  });
+
+  test('lands multiple hits without exceeding maxHits', () => {
+    const fired = pressUpWithSpecial(
+      holdDown(startChunliFight(), CHARGE_REQUIRED_FRAMES)
+    );
+
+    let state = fired;
+    let maxHitsSeen = 0;
+    for (let index = 0; index < 200 && state.player?.attack != null; index += 1) {
+      state = advanceGame(state, createInput());
+      maxHitsSeen = Math.max(maxHitsSeen, state.player?.attack?.hitsLanded ?? 0);
+    }
+
+    // 立ち相手には上昇時と下降時で2段入る（8ダメージ×2）
+    expect(maxHitsSeen).toBe(2);
+    expect(state.cpu?.hp).toBe(84);
+  });
+
+  test('cycles the four spin frames every three frames while airborne', () => {
+    const spinning = createFighter({
+      ...chunliDefinition,
+      grounded: false,
+      attack: createAttack('spinningBirdKick', { frame: 12 })
+    });
+
+    expect(getSpecialSpriteFrame(spinning)).toEqual({
+      moveId: 'spinningBirdKick',
+      index: 0
+    });
+    const indexes = [12, 15, 18, 21, 24].map(
+      (frame) =>
+        getSpecialSpriteFrame(
+          createFighter({
+            ...chunliDefinition,
+            grounded: false,
+            attack: createAttack('spinningBirdKick', { frame })
+          })
+        )?.index
+    );
+    expect(indexes).toEqual([0, 1, 2, 3, 0]);
+  });
+
+  test('shows no spin animation on the ground or before launch', () => {
+    const windup = createFighter({
+      ...chunliDefinition,
+      attack: createAttack('spinningBirdKick', { frame: 4 })
+    });
+    const landing = createFighter({
+      ...chunliDefinition,
+      attack: createAttack('spinningBirdKick', { frame: 63, landingFrames: 8 })
+    });
+
+    expect(getSpecialSpriteFrame(windup)).toBeNull();
+    expect(getSpecialSpriteFrame(landing)).toBeNull();
+    // 地上フェーズはしゃがみポーズに落ちる
+    expect(
+      getPoseImagePath(windup, {
+        opponent,
+        roundEnd: null,
+        guarding: false
+      })
+    ).toBe('crouch');
+  });
+
+  test('gives Chun-Li nothing on a plain special press', () => {
+    const plain = advanceGame(startChunliFight(), {
+      ...createInput(['KeyC']),
+      projectile: true
+    });
+
+    expect(plain.player?.attack).toBeNull();
+    expect(plain.projectiles).toHaveLength(0);
+  });
+
+  test('keeps the projectile unchanged for the other characters', () => {
+    // プレイヤーはリュウ（デフォルトの飛び道具持ち）
+    const fight = startActiveFight({}, {});
+    const fired = advanceGame(fight, {
+      ...createInput(['KeyC']),
+      projectile: true
+    });
+    expect(fired.player?.attack?.moveId).toBe('projectile');
+    expect(fired.player?.specialCooldown).toBe(60);
+
+    // Ver.6 と同じく発生12Fで弾が出る
+    let state = fired;
+    for (let index = 0; index < 12; index += 1) {
+      state = advanceGame(state, createInput());
+    }
+    expect(state.projectiles).toHaveLength(1);
+    expect(state.projectiles[0]?.vx).toBe(6);
+    expect(state.projectiles[0]?.y).toBe(GROUND_Y - 94);
+  });
+
+  test('reports the charge meter only for a charging player with a charge move', () => {
+    const noCharge = createFighter({ ...chunliDefinition });
+    expect(getChargeMeter(noCharge)).toBeNull();
+
+    const halfway = createFighter({
+      ...chunliDefinition,
+      chargeDirection: 'down',
+      chargeFrames: CHARGE_REQUIRED_FRAMES / 2
+    });
+    expect(getChargeMeter(halfway)?.progress).toBeCloseTo(0.5);
+    expect(getChargeMeter(halfway)?.ready).toBe(false);
+
+    const ready = createFighter({
+      ...chunliDefinition,
+      chargeDirection: 'down',
+      chargeFrames: CHARGE_REQUIRED_FRAMES
+    });
+    expect(getChargeMeter(ready)?.ready).toBe(true);
+    expect(getChargeMeter(ready)?.progress).toBe(1);
+
+    // 溜め技を持たないキャラと CPU（溜め免除）は非表示
+    const ryuCharging = createFighter({
+      chargeDirection: 'down',
+      chargeFrames: CHARGE_REQUIRED_FRAMES
+    });
+    const cpuChunli = createFighter({
+      ...chunliDefinition,
+      isPlayer: false,
+      chargeDirection: 'down',
+      chargeFrames: CHARGE_REQUIRED_FRAMES
+    });
+    expect(getChargeMeter(ryuCharging)).toBeNull();
+    expect(getChargeMeter(cpuChunli)).toBeNull();
   });
 });
