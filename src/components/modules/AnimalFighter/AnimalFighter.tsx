@@ -38,30 +38,30 @@ export const MoveListPanel: FC<MoveListPanelProps> = ({
       className={`rounded-2xl bg-slate-800/70 p-3 ${className ?? ''}`}
       aria-label={`${spec.name} の技一覧`}
     >
-      <p className='mb-1 text-[10px] font-bold uppercase tracking-widest text-slate-400'>
+      <p className='mb-1 text-[11px] font-bold uppercase tracking-widest text-slate-400'>
         {side === 'player' ? '1P' : 'CPU'}
       </p>
       <p
-        className='mb-2 truncate text-xs font-bold'
+        className='mb-2 text-sm font-bold leading-tight'
         style={{ color: spec.color }}
-        title={spec.name}
       >
         {spec.name}
       </p>
-      <ul className='space-y-1.5'>
+      <ul className='space-y-2'>
         {moves.map((move) => (
           <li key={move.id}>
-            <div className='flex items-baseline justify-between gap-2'>
-              <span className='text-[11px] font-semibold leading-tight text-slate-200'>
-                {move.name}
-              </span>
-              <span className='shrink-0 text-[10px] tabular-nums text-slate-400'>
+            {/* 技名は幅いっぱいに使い、コマンドとダメージを1行にまとめる */}
+            <p className='text-[13px] font-semibold leading-tight text-slate-200'>
+              {move.name}
+            </p>
+            <div className='mt-1 flex items-center justify-between gap-2'>
+              <kbd className='rounded border border-slate-600 bg-slate-900 px-1.5 py-0.5 text-xs font-bold text-amber-200'>
+                {move.command}
+              </kbd>
+              <span className='shrink-0 text-[11px] tabular-nums text-slate-400'>
                 {move.damage}
               </span>
             </div>
-            <kbd className='mt-0.5 inline-block rounded border border-slate-600 bg-slate-900 px-1.5 py-0.5 text-[10px] font-bold text-amber-200'>
-              {move.command}
-            </kbd>
           </li>
         ))}
       </ul>
@@ -74,7 +74,7 @@ export const AnimalFighter: FC = () => {
   const inMatch = match.screen === 'fight' || match.screen === 'result';
 
   return (
-    <main className='w-full max-w-[1180px] rounded-3xl bg-[#111d36] p-4 text-white shadow-2xl shadow-slate-950/30 sm:p-8'>
+    <main className='w-full max-w-[1240px] rounded-3xl bg-[#111d36] p-4 text-white shadow-2xl shadow-slate-950/30 sm:p-8'>
       <header className='mb-5'>
         <p className='mb-2 text-sm font-semibold uppercase tracking-[0.3em] text-amber-300'>
           対戦型アクション
@@ -90,7 +90,7 @@ export const AnimalFighter: FC = () => {
       {/* 列は常に確保して、対戦開始時に canvas の幅が変わらないようにする */}
       <div className='flex items-start justify-center gap-3'>
         <div
-          className={`hidden w-[150px] shrink-0 lg:block ${inMatch ? '' : 'invisible'}`}
+          className={`hidden w-[176px] shrink-0 lg:block ${inMatch ? '' : 'invisible'}`}
         >
           <MoveListPanel id={match.playerId} side='player' />
         </div>
@@ -108,7 +108,7 @@ export const AnimalFighter: FC = () => {
         </div>
 
         <div
-          className={`hidden w-[150px] shrink-0 lg:block ${inMatch ? '' : 'invisible'}`}
+          className={`hidden w-[176px] shrink-0 lg:block ${inMatch ? '' : 'invisible'}`}
         >
           <MoveListPanel id={match.cpuId} side='cpu' />
         </div>
