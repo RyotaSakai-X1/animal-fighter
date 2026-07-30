@@ -2,6 +2,33 @@
 // DOM / Canvas に依存しない純関数のみで構成され、唯一の入口 advanceGame() が
 // 「現在の状態 + 1フレーム分の入力 → 次の状態」を返す。
 // 描画・キー入力・requestAnimationFrame の配線は useAnimalFighter.ts が担当する。
+//
+// キャラごとのフレームデータ・当たり判定・必殺技・CPU抽選表は characters/ が持ち、
+// このファイルはレジストリ経由でだけそれを読む（Ver.7）。技の挙動の種類は
+// moves/behaviors.ts、コマンド入力の認識は moves/commands.ts。
+
+import {
+  CHARACTER_DEFINITIONS,
+  getCharacterSpec,
+  getMoveSpec,
+  getSpecialMove
+} from './characters';
+import type { CharacterId } from './characters/ids';
+import type {
+  CharacterDefinition,
+  CpuAction,
+  MoveSpec
+} from './moves/types';
+
+export { CHARACTER_DEFINITIONS, CHARACTER_IDS } from './characters';
+export type { CharacterId } from './characters/ids';
+export type {
+  CharacterDefinition,
+  CpuAction,
+  HurtboxSpec,
+  MoveSpec,
+  SpecialMove
+} from './moves/types';
 
 // ----------------------------------------------------------------
 // 基本定数（座標は canvas 内部解像度 800x450、時間は 60fps のフレーム数）
@@ -27,49 +54,15 @@ export const AIR_SPEED = 2.5;
 export const JUMP_VELOCITY = -15;
 
 // ----------------------------------------------------------------
-// キャラクター定義（現状は見た目のみの差分。能力値はまだ全キャラ共通）
+// 選択画面のグリッド
+// キャラクター定義・技のフレームデータ・当たり判定・CPU抽選表は characters/ にある
 // ----------------------------------------------------------------
 
-export const CHARACTER_IDS = [
-  'ryu',
-  'ken',
-  'chunli',
-  'honda',
-  'zangief',
-  'guile',
-  'dhalsim',
-  'bison',
-  'blanka',
-  'vega'
-] as const;
-export type CharacterId = (typeof CHARACTER_IDS)[number];
-
-export type CharacterDefinition = {
-  id: CharacterId;
-  name: string;
-  color: string;
-};
-
-export const CHARACTER_DEFINITIONS: readonly CharacterDefinition[] = [
-  { id: 'ryu', name: 'KUMA-RYU', color: '#8b5a2b' },
-  { id: 'ken', name: 'KUMA-KEN', color: '#f0ead6' },
-  { id: 'chunli', name: 'KITSUNE CHUN-LI', color: '#e0862f' },
-  { id: 'honda', name: 'AKITA-DOG HONDA', color: '#d9a05b' },
-  { id: 'zangief', name: 'BURU-DOG ZANGIEF', color: '#c0392b' },
-  { id: 'guile', name: 'GORILLA GUILE', color: '#5a7d2a' },
-  { id: 'dhalsim', name: 'GIBBON DHALSIM', color: '#d4a017' },
-  { id: 'bison', name: 'BISON BUFFALO', color: '#7b2fbe' },
-  { id: 'blanka', name: 'SHISHI BLANKA', color: '#58a832' },
-  { id: 'vega', name: 'TIGER VEGA', color: '#f28c28' }
-];
 export const SELECT_SLOT_COUNT = 10;
 export const SELECT_COLUMNS = 5;
 
-// ----------------------------------------------------------------
-// 攻撃のフレームデータ（全キャラ共通）
-// startup=発生, active=持続, recovery=硬直（単位: フレーム）, reach=前方への判定距離(px)
-// ----------------------------------------------------------------
-
+// Ver.6 までの全キャラ共通フレームデータ。実データは characters/ に移ったため
+// エンジンからは参照していない（互換のため公開を残している）
 export const ATTACKS = {
   punch: { startup: 6, active: 4, recovery: 10, damage: 8, reach: 55 },
   kick: { startup: 10, active: 5, recovery: 16, damage: 13, reach: 75 },
@@ -78,42 +71,7 @@ export const ATTACKS = {
 
 export type AttackType = keyof typeof ATTACKS;
 
-// ----------------------------------------------------------------
-// CPU の行動抽選テーブル（プレイヤーとの距離帯ごとに重み付き抽選、各表の合計は 1.0）
-// 難易度・性格の調整はこの数値をいじる
-// ----------------------------------------------------------------
-
-export const CPU_PROBABILITIES = {
-  far: [
-    ['approach', 0.6],
-    ['projectile', 0.2],
-    ['idle', 0.2]
-  ],
-  mid: [
-    ['approach', 0.5],
-    ['jumpForward', 0.2],
-    ['projectile', 0.15],
-    ['idle', 0.15]
-  ],
-  close: [
-    ['punch', 0.35],
-    ['kick', 0.25],
-    ['retreat', 0.2],
-    ['jump', 0.1],
-    ['jumpForward', 0.1] // 近距離の前方ジャンプ＝飛び越えて裏に回る「めくり」狙い
-  ],
-  projectileDodge: 0.4
-} as const;
-
-export type CpuAction =
-  | 'approach'
-  | 'projectile'
-  | 'idle'
-  | 'jumpForward'
-  | 'punch'
-  | 'kick'
-  | 'retreat'
-  | 'jump';
+export { DEFAULT_CPU_TABLE as CPU_PROBABILITIES } from './characters/shared/cpu';
 
 // ----------------------------------------------------------------
 // 型定義（ファイター・画面・入力・ゲーム全体の状態）
@@ -283,12 +241,11 @@ export const setAssetStatus = (
   assetsFailed: boolean
 ): GameState => ({ ...state, assetsReady, assetsFailed });
 
+// Fighter が抱えるのは id/name/color の射影だけ。スペック本体は毎フレームの
+// cloneFighter で複製したくないので、必要なときにレジストリから引く
 const getDefinition = (id: CharacterId): CharacterDefinition => {
-  const definition = CHARACTER_DEFINITIONS.find((item) => item.id === id);
-  if (definition === undefined) {
-    throw new Error(`Unknown character: ${id}`);
-  }
-  return definition;
+  const { name, color } = getCharacterSpec(id);
+  return { id, name, color };
 };
 
 const createFighter = (id: CharacterId, isPlayer: boolean): Fighter => ({
@@ -438,14 +395,15 @@ export type Hitbox = {
   bottom: number;
 };
 
-// やられ判定の矩形。しゃがみで高さが半分になる
+// やられ判定の矩形。寸法はキャラごと（characters/<id>/index.ts の hurtbox）で、
+// しゃがみでは crouchHeight に縮む
 export const getHitbox = (fighter: Fighter): Hitbox => {
-  const height = fighter.crouching ? 65 : 130;
-  const width = 54;
+  const { width, height, crouchHeight } = getCharacterSpec(fighter.id).hurtbox;
+  const currentHeight = fighter.crouching ? crouchHeight : height;
   return {
     left: fighter.x - width / 2,
     right: fighter.x + width / 2,
-    top: fighter.y - height,
+    top: fighter.y - currentHeight,
     bottom: fighter.y
   };
 };
@@ -485,64 +443,64 @@ const hasProjectileFor = (state: GameState, fighter: Fighter): boolean =>
 const startAttack = (
   state: GameState,
   fighter: Fighter,
-  type: AttackType
+  moveId: AttackType
 ): boolean => {
-  const attack = ATTACKS[type];
+  const spec = getMoveSpec(fighter.id, moveId);
   if (
     fighter.attack !== null ||
     fighter.hitstun > 0 ||
     !fighter.grounded ||
-    attack === undefined
+    spec === undefined
   ) {
     return false;
   }
+  const spawnsProjectile = spec.behavior?.kind === 'projectile';
   if (
-    type === 'projectile' &&
+    spawnsProjectile &&
     (fighter.projectileCooldown > 0 || hasProjectileFor(state, fighter))
   ) {
     return false;
   }
-  fighter.attack = { type, frame: 0, hasHit: false };
+  fighter.attack = { type: moveId, frame: 0, hasHit: false };
   fighter.crouching = false;
   fighter.blocking = false;
-  if (type === 'projectile') {
-    fighter.projectileCooldown = 60;
+  if (spawnsProjectile) {
+    fighter.projectileCooldown =
+      getSpecialMove(fighter.id, moveId)?.cooldown ?? 0;
   }
   return true;
 };
 
 // 攻撃判定が出ている（発生後〜持続終了前の）フレームか
-export const attackIsActive = (attack: AttackState): boolean => {
-  const settings = ATTACKS[attack.type];
-  return (
-    settings !== undefined &&
-    attack.frame >= settings.startup &&
-    attack.frame < settings.startup + settings.active
-  );
-};
+export const attackIsActive = (
+  attack: AttackState,
+  spec: MoveSpec
+): boolean =>
+  attack.frame >= spec.startup && attack.frame < spec.startup + spec.active;
 
-// 打撃の攻撃判定矩形。体の矩形を向いている方向へ reach 分伸ばす（飛び道具は別処理なので null）
-const getAttackBox = (fighter: Fighter, attack: AttackState): Hitbox | null => {
-  const settings = ATTACKS[attack.type];
-  if (settings === undefined || attack.type === 'projectile') {
+// 打撃の攻撃判定矩形。体の矩形を hitbox の設定ぶん広げる。
+// spread='both' は左右両方に伸ばす（回転技）、topOffset が負値なら体より上へ伸びる。
+// maxHits=0 の技は打撃判定を持たない（弾だけで当てる飛び道具）ので null
+const getAttackBox = (fighter: Fighter, spec: MoveSpec): Hitbox | null => {
+  if (spec.maxHits === 0) {
     return null;
   }
+  const shape = spec.hitbox;
   const body = getHitbox(fighter);
-  const topOffset = attack.type === 'kick' ? 35 : 15;
-  if (fighter.facing === 1) {
+  const top = body.top + shape.topOffset;
+  const bottom = body.bottom - shape.bottomInset;
+  if (shape.spread === 'both') {
     return {
-      left: body.left,
-      right: body.right + settings.reach,
-      top: body.top + topOffset,
-      bottom: body.bottom - 18
+      left: body.left - shape.reach,
+      right: body.right + shape.reach,
+      top,
+      bottom
     };
   }
-  return {
-    left: body.left - settings.reach,
-    right: body.right,
-    top: body.top + topOffset,
-    bottom: body.bottom - 18
-  };
+  if (fighter.facing === 1) {
+    return { left: body.left, right: body.right + shape.reach, top, bottom };
+  }
+  return { left: body.left - shape.reach, right: body.right, top, bottom };
 };
 
 const addHitSpark = (state: GameState, x: number, y: number): void => {
@@ -598,13 +556,17 @@ const applyHit = (state: GameState, options: HitOptions): void => {
 // 飛び道具とヒット解決
 // ----------------------------------------------------------------
 
-const spawnProjectile = (state: GameState, fighter: Fighter): void => {
+const spawnProjectile = (
+  state: GameState,
+  fighter: Fighter,
+  behavior: { speed: number; height: number; offsetX: number }
+): void => {
   const direction = fighter.facing;
   state.projectiles.push({
     owner: fighter.id,
-    x: fighter.x + direction * 38,
-    y: fighter.y - 94,
-    vx: direction * 6,
+    x: fighter.x + direction * behavior.offsetX,
+    y: fighter.y - behavior.height,
+    vx: direction * behavior.speed,
     frame: 0,
     onScreen: true
   });
@@ -649,21 +611,22 @@ const resolveAttacks = (
   if (attack === null) {
     return;
   }
-  const settings = ATTACKS[attack.type];
+  const settings = getMoveSpec(attacker.id, attack.type);
   if (settings === undefined) {
     return;
   }
 
-  if (attack.type === 'projectile') {
-    if (attack.frame === settings.startup && !attack.hasHit) {
-      spawnProjectile(state, attacker);
+  const behavior = settings.behavior;
+  if (behavior !== null && behavior.kind === 'projectile') {
+    if (attack.frame === behavior.spawnFrame && !attack.hasHit) {
+      spawnProjectile(state, attacker, behavior);
       attack.hasHit = true;
     }
     return;
   }
 
-  if (attackIsActive(attack) && !attack.hasHit) {
-    const box = getAttackBox(attacker, attack);
+  if (attackIsActive(attack, settings) && !attack.hasHit) {
+    const box = getAttackBox(attacker, settings);
     const targetBox = getHitbox(target);
     if (box !== null && rectanglesOverlap(box, targetBox)) {
       const contactX = attacker.x + attacker.facing * 32;
@@ -702,22 +665,24 @@ const chooseCpuAction = (state: GameState, random: () => number): CpuAction => {
       projectile.onScreen &&
       Math.abs(projectile.x - cpuX) <= 200
   );
-  if (incomingProjectile && random() < CPU_PROBABILITIES.projectileDodge) {
+  // 抽選表はキャラごと（characters/<id>/index.ts の cpu）
+  const probabilities = getCharacterSpec(state.cpu.id).cpu;
+  if (incomingProjectile && random() < probabilities.projectileDodge) {
     return 'jump';
   }
 
   const table =
     distance > 300
-      ? CPU_PROBABILITIES.far
+      ? probabilities.far
       : distance >= 150
-        ? CPU_PROBABILITIES.mid
-        : CPU_PROBABILITIES.close;
+        ? probabilities.mid
+        : probabilities.close;
   const roll = random();
   let cumulative = 0;
   for (const [action, probability] of table) {
     cumulative += probability;
     if (roll < cumulative) {
-      return action as CpuAction;
+      return action;
     }
   }
   const fallback = table[table.length - 1];
@@ -725,7 +690,7 @@ const chooseCpuAction = (state: GameState, random: () => number): CpuAction => {
     roll,
     table
   });
-  return (fallback?.[0] ?? 'idle') as CpuAction;
+  return fallback?.[0] ?? 'idle';
 };
 
 // 20〜40 フレーム（約0.3〜0.7秒）ごとに行動を再抽選し、決めた行動はその間持続させる
@@ -975,7 +940,7 @@ const advanceAttack = (fighter: Fighter): void => {
   if (fighter.attack === null) {
     return;
   }
-  const settings = ATTACKS[fighter.attack.type];
+  const settings = getMoveSpec(fighter.id, fighter.attack.type);
   if (settings === undefined) {
     fighter.attack = null;
     return;
@@ -1215,79 +1180,18 @@ export const advanceGame = (
 };
 
 // ----------------------------------------------------------------
-// スプライト選択（描画側 useAnimalFighter.ts から使う純ヘルパー）
+// スプライト選択は sprites.ts に移動（Ver.7）。互換のためここから再公開する
 // ----------------------------------------------------------------
 
-export type CombatPose =
-  | 'down'
-  | 'punch'
-  | 'kick'
-  | 'fight'
-  | 'jump'
-  | 'crouch'
-  | 'guard';
-
-export type Pose = 'base' | 'icon' | CombatPose;
-
-export type PoseContext = {
-  opponent: Fighter;
-  roundEnd: RoundEnd | null;
-  guarding: boolean;
-};
-
-/**
- * Selects the sprite pose using the gameplay priority order.
- *
- * A KO loser alone uses `down`; attacks take precedence over hitstun, jump,
- * crouch, and guard; hitstun keeps the fighter in the neutral `fight` pose
- * because no separate hurt sprite exists in the asset set.
- */
-export const getPoseImagePath = (
-  fighter: Fighter,
-  context: PoseContext
-): CombatPose => {
-  let pose: CombatPose = 'fight';
-  if (
-    context.roundEnd?.kind === 'ko' &&
-    context.roundEnd.winner !== null &&
-    context.roundEnd.winner !== fighter.id
-  ) {
-    pose = 'down';
-  } else if (
-    fighter.attack?.type === 'punch' ||
-    fighter.attack?.type === 'projectile'
-  ) {
-    pose = 'punch';
-  } else if (fighter.attack?.type === 'kick') {
-    pose = 'kick';
-  } else if (fighter.hitstun > 0) {
-    pose = 'fight';
-  } else if (!fighter.grounded) {
-    pose = 'jump';
-  } else if (fighter.crouching) {
-    pose = 'crouch';
-  } else if (context.guarding) {
-    pose = 'guard';
-  }
-  return pose;
-};
-
-export const getCharacterImagePath = (_id: CharacterId): Pose => 'base';
-
-export const getCharacterIconPath = (_id: CharacterId): Pose => 'icon';
-
-export type CombatSpriteSpec = {
-  height: number | null;
-  width: number | null;
-  anchor: 'fighter' | 'ground';
-};
-
-export const getCombatSpriteSpec = (pose: CombatPose): CombatSpriteSpec => {
-  if (pose === 'down') {
-    return { height: null, width: 220, anchor: 'ground' };
-  }
-  if (pose === 'crouch') {
-    return { height: 126, width: null, anchor: 'ground' };
-  }
-  return { height: 180, width: null, anchor: 'fighter' };
-};
+export {
+  getCharacterIconPath,
+  getCharacterImagePath,
+  getCombatSpriteSpec,
+  getPoseImagePath
+} from './sprites';
+export type {
+  CombatPose,
+  CombatSpriteSpec,
+  Pose,
+  PoseContext
+} from './sprites';
