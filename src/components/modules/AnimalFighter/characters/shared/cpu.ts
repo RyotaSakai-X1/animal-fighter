@@ -6,13 +6,13 @@ import type { CpuProbabilityTable } from '../../moves/types';
 export const DEFAULT_CPU_TABLE: CpuProbabilityTable = {
   far: [
     ['approach', 0.6],
-    ['projectile', 0.2],
+    ['special', 0.2],
     ['idle', 0.2]
   ],
   mid: [
     ['approach', 0.5],
     ['jumpForward', 0.2],
-    ['projectile', 0.15],
+    ['special', 0.15],
     ['idle', 0.15]
   ],
   close: [

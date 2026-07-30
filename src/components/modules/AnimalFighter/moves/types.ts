@@ -69,9 +69,11 @@ export type SpecialMove = MoveSpec & {
 // CPU の行動抽選
 // ----------------------------------------------------------------
 
+// 'special' はそのキャラの specials[0] を出す指示。技の中身はキャラ側が決めるので、
+// 抽選テーブルは「必殺技を撃つ」以上のことを知らなくて済む
 export type CpuAction =
   | 'approach'
-  | 'projectile'
+  | 'special'
   | 'idle'
   | 'jumpForward'
   | 'punch'

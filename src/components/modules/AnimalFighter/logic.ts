@@ -67,16 +67,6 @@ export const JUMP_VELOCITY = -15;
 export const SELECT_SLOT_COUNT = 10;
 export const SELECT_COLUMNS = 5;
 
-// Ver.6 までの全キャラ共通フレームデータ。実データは characters/ に移ったため
-// エンジンからは参照していない（互換のため公開を残している）
-export const ATTACKS = {
-  punch: { startup: 6, active: 4, recovery: 10, damage: 8, reach: 55 },
-  kick: { startup: 10, active: 5, recovery: 16, damage: 13, reach: 75 },
-  projectile: { startup: 12, active: 1, recovery: 20, damage: 12, reach: 0 }
-} as const;
-
-export type AttackType = keyof typeof ATTACKS;
-
 export { DEFAULT_CPU_TABLE as CPU_PROBABILITIES } from './characters/shared/cpu';
 
 // ----------------------------------------------------------------
@@ -131,6 +121,9 @@ export type Projectile = {
   vx: number;
   frame: number;
   onScreen: boolean;
+  // 発生時の技のダメージを持たせる。弾は技より長生きするので、
+  // 当たった時点で「どの技から出たか」を遡らずに済ませる
+  damage: number;
 };
 
 export type HitSpark = { x: number; y: number; frame: number };
@@ -618,6 +611,7 @@ const applyHit = (state: GameState, options: HitOptions): void => {
 const spawnProjectile = (
   state: GameState,
   fighter: Fighter,
+  spec: MoveSpec,
   behavior: { speed: number; height: number; offsetX: number }
 ): void => {
   const direction = fighter.facing;
@@ -627,7 +621,8 @@ const spawnProjectile = (
     y: fighter.y - behavior.height,
     vx: direction * behavior.speed,
     frame: 0,
-    onScreen: true
+    onScreen: true,
+    damage: spec.damage
   });
   state.events.push('projectile');
 };
@@ -678,7 +673,7 @@ const resolveAttacks = (
   const behavior = settings.behavior;
   if (behavior !== null && behavior.kind === 'projectile') {
     if (attack.frame === behavior.spawnFrame && !attack.projectileSpawned) {
-      spawnProjectile(state, attacker, behavior);
+      spawnProjectile(state, attacker, settings, behavior);
       attack.projectileSpawned = true;
     }
     return;
@@ -873,8 +868,11 @@ const updateCpu = (
   opponent: Fighter
 ): void => {
   const action = fighter.aiAction;
-  if (action === 'projectile') {
-    if (!startAttack(state, fighter, 'projectile')) {
+  if (action === 'special') {
+    // CPU はキー入力を持たないので溜めコマンドを満たせない＝溜め免除で直接発動する。
+    // 抽選間隔が20〜40Fあり、技ごとの cooldown も両者に等しく効くので不公平にはならない
+    const special = getCharacterSpec(fighter.id).specials[0];
+    if (special === undefined || !startAttack(state, fighter, special.id)) {
       fighter.aiAction = 'approach';
     }
   } else if (action === 'punch') {
@@ -1024,7 +1022,7 @@ const updateProjectiles = (state: GameState): void => {
       applyHit(state, {
         attacker: owner,
         target,
-        damage: ATTACKS.projectile.damage,
+        damage: projectile.damage,
         contactX: projectile.x,
         contactY: projectile.y,
         projectileHit: true

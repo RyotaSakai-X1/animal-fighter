@@ -7,7 +7,8 @@ const CONTROL_KEYS = [
   { key: '↓', label: 'しゃがみ' },
   { key: 'Z', label: 'パンチ' },
   { key: 'X', label: 'キック' },
-  { key: 'C', label: '飛び道具' },
+  { key: 'C', label: '必殺技' },
+  { key: '↓溜め → C+↑', label: 'スピニングバードキック（春麗）' },
   { key: 'Enter', label: '決定' },
   { key: 'Esc', label: '戻る' }
 ] as const;
@@ -25,7 +26,7 @@ export const AnimalFighter: FC = () => {
           ANIMAL FIGHTER
         </h1>
         <p className='mt-2 text-sm text-slate-300'>
-          ポーズ差分画像で遊ぶ ANIMAL FIGHTER Ver.6
+          ポーズ差分画像で遊ぶ ANIMAL FIGHTER Ver.7
         </p>
       </header>
 

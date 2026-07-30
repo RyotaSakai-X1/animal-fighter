@@ -1,18 +1,30 @@
 import type { CharacterSpec } from '../../moves/types';
-import { DEFAULT_CPU_TABLE } from '../shared/cpu';
-import { DEFAULT_HURTBOX } from '../shared/hurtbox';
-import { DEFAULT_KICK, DEFAULT_PUNCH, makeNormal } from '../shared/normals';
+import { makeNormal } from '../shared/normals';
+import { CHUNLI_CPU_TABLE } from './cpu';
 import { SPINNING_BIRD_KICK } from './specials/spinningBirdKick';
 
 export const chunli: CharacterSpec = {
   id: 'chunli',
   name: 'KITSUNE CHUN-LI',
   color: '#e0862f',
-  hurtbox: DEFAULT_HURTBOX,
-  punch: makeNormal('punch', DEFAULT_PUNCH),
-  kick: makeNormal('kick', DEFAULT_KICK),
+  // 初代 遠立ち中Ｐ 5/4/4・強Ｋ 11/8/14。発生が早く硬直が短い、脚が長く低威力
+  hurtbox: { width: 48, height: 126, crouchHeight: 62 },
+  punch: makeNormal('punch', {
+    startup: 5,
+    active: 4,
+    recovery: 8,
+    damage: 6,
+    reach: 52
+  }),
+  kick: makeNormal('kick', {
+    startup: 11,
+    active: 8,
+    recovery: 14,
+    damage: 11,
+    reach: 88
+  }),
   // 飛び道具（気功拳）は未実装なので、必殺技はスピニングバードキックのみ。
   // C の単押しでは何も出ず、↓溜め → C押しながら↑ で発動する
   specials: [SPINNING_BIRD_KICK],
-  cpu: DEFAULT_CPU_TABLE
+  cpu: CHUNLI_CPU_TABLE
 };

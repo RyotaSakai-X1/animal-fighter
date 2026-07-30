@@ -1,6 +1,6 @@
+import { getCharacterSpec } from './characters';
 import {
   advanceGame,
-  ATTACKS,
   BACKGROUND_COUNT,
   CHARACTER_IDS,
   CHARACTER_DEFINITIONS,
@@ -525,18 +525,31 @@ describe('Animal Fighter game logic', () => {
     expect(rectanglesOverlap(getHitbox(player), getHitbox(cpu))).toBe(false);
   });
 
-  test('keeps the Ver.1 attack frame data and crouch hitbox', () => {
-    expect(ATTACKS).toEqual({
-      punch: { startup: 6, active: 4, recovery: 10, damage: 8, reach: 55 },
-      kick: { startup: 10, active: 5, recovery: 16, damage: 13, reach: 75 },
-      projectile: {
-        startup: 12,
-        active: 1,
-        recovery: 20,
-        damage: 12,
-        reach: 0
-      }
+  test('keeps the baseline frame data and crouch hitbox on Ryu', () => {
+    // リュウは全キャラの基準。Ver.6 の 54x130（しゃがみ65）を維持する
+    const ryu = getCharacterSpec('ryu');
+    expect(ryu.hurtbox).toEqual({ width: 54, height: 130, crouchHeight: 65 });
+    expect(ryu.punch).toMatchObject({
+      startup: 4,
+      active: 4,
+      recovery: 10,
+      damage: 8
     });
+    expect(ryu.punch.hitbox).toEqual({
+      reach: 55,
+      spread: 'forward',
+      topOffset: 15,
+      bottomInset: 18
+    });
+    expect(ryu.kick.hitbox).toMatchObject({
+      reach: 75,
+      spread: 'forward',
+      topOffset: 35
+    });
+    // 単発技は Ver.6 の hasHit ラッチと同じ挙動になる設定
+    expect(ryu.punch.maxHits).toBe(1);
+    expect(ryu.kick.maxHits).toBe(1);
+
     const standing = createFighter();
     const crouching = createFighter({ crouching: true });
     expect(getHitbox(standing).top).toBe(270);
@@ -544,6 +557,45 @@ describe('Animal Fighter game logic', () => {
     expect(isGuarding(standing, opponent, { ...EMPTY_INPUT, left: true })).toBe(
       true
     );
+  });
+
+  test('gives every character a hurtbox that preserves the Ver.6 side switch', () => {
+    for (const id of CHARACTER_IDS) {
+      const { hurtbox } = getCharacterSpec(id);
+      // ジャンプ頂点は約161px。これを超える高さだと頭に引っかかって飛び越えられない
+      expect(hurtbox.height).toBeLessThanOrEqual(155);
+      expect(hurtbox.crouchHeight).toBeLessThan(hurtbox.height);
+      // 密着から相手の中心を越えるのに必要な移動量は (自幅+相手幅)/2。
+      // 滞空43F × 横速度2.5 = 107.5px 動けるので、最も太い組でも収まる必要がある
+      expect(hurtbox.width).toBeLessThanOrEqual(70);
+    }
+    const widest = CHARACTER_IDS.map(
+      (id) => getCharacterSpec(id).hurtbox.width
+    ).sort((first, second) => second - first);
+    const worstPair = ((widest[0] ?? 0) + (widest[1] ?? 0)) / 2;
+    expect(worstPair).toBeLessThan(107.5);
+  });
+
+  test('differentiates frame data across characters', () => {
+    const chunli = getCharacterSpec('chunli');
+    const zangief = getCharacterSpec('zangief');
+    const dhalsim = getCharacterSpec('dhalsim');
+
+    // 春麗は発生が早く硬直が短い
+    expect(chunli.punch.recovery).toBeLessThan(
+      getCharacterSpec('ryu').punch.recovery
+    );
+    // ザンギエフは最高威力・最短リーチ
+    expect(zangief.kick.damage).toBe(16);
+    expect(zangief.punch.hitbox.reach).toBe(48);
+    // ダルシムは最長リーチ・低威力
+    expect(dhalsim.kick.hitbox.reach).toBe(95);
+    expect(dhalsim.kick.damage).toBe(10);
+
+    const reaches = CHARACTER_IDS.map(
+      (id) => getCharacterSpec(id).kick.hitbox.reach
+    );
+    expect(new Set(reaches).size).toBeGreaterThan(1);
   });
 
   test('awards a timeout round to the fighter with more health', () => {
@@ -794,6 +846,47 @@ describe('Animal Fighter special moves', () => {
     expect(state.projectiles).toHaveLength(1);
     expect(state.projectiles[0]?.vx).toBe(6);
     expect(state.projectiles[0]?.y).toBe(GROUND_Y - 94);
+  });
+
+  test('keeps every CPU probability table summing to 1.0', () => {
+    // Ver.6 では合計1.0がコメントでしか保証されていなかった。崩れると
+    // chooseCpuAction がフォールバック経路（console.warn）に落ちる
+    for (const id of CHARACTER_IDS) {
+      const { cpu } = getCharacterSpec(id);
+      for (const band of [cpu.far, cpu.mid, cpu.close]) {
+        const total = band.reduce((sum, [, weight]) => sum + weight, 0);
+        expect(total).toBeCloseTo(1, 5);
+      }
+    }
+  });
+
+  test('lets a CPU Chun-Li use the spinning bird kick without a charge', () => {
+    // CPU 春麗を近距離に置き、close 帯で special を引く乱数を与える。
+    // punch 0.3 + kick 0.2 = 0.5 の次が special 0.15 なので 0.55 で当たる
+    const fight = startActiveFight(
+      { x: 300 },
+      { ...chunliDefinition, x: 360, aiFrames: 1 }
+    );
+    const rolled = advanceGame(fight, createInput(), { random: () => 0.55 });
+
+    expect(rolled.cpu?.aiAction).toBe('special');
+    expect(rolled.cpu?.attack?.moveId).toBe('spinningBirdKick');
+    // 溜めは免除だが、クールダウンはプレイヤーと同じように効く
+    expect(rolled.cpu?.specialCooldown).toBe(90);
+    expect(rolled.cpu?.chargeFrames).toBe(0);
+  });
+
+  test('never makes a CPU Chun-Li throw a projectile at long range', () => {
+    const fight = startActiveFight(
+      { x: 60 },
+      { ...chunliDefinition, x: 740, aiFrames: 1 }
+    );
+    // far 帯は approach 0.7 / idle 0.3 のみ。どの乱数でも special は出ない
+    for (const roll of [0.05, 0.35, 0.69, 0.71, 0.95]) {
+      const rolled = advanceGame(fight, createInput(), { random: () => roll });
+      expect(rolled.cpu?.aiAction).not.toBe('special');
+      expect(rolled.projectiles).toHaveLength(0);
+    }
   });
 
   test('reports the charge meter only for a charging player with a charge move', () => {

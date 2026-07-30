@@ -26,23 +26,6 @@ export type NormalStats = {
   reach: number;
 };
 
-// Ver.6 の ATTACKS の値。固有のフレームデータを与えないキャラはこれを使う
-export const DEFAULT_PUNCH: NormalStats = {
-  startup: 6,
-  active: 4,
-  recovery: 10,
-  damage: 8,
-  reach: 55
-};
-
-export const DEFAULT_KICK: NormalStats = {
-  startup: 10,
-  active: 5,
-  recovery: 16,
-  damage: 13,
-  reach: 75
-};
-
 export const makeNormal = (
   kind: 'punch' | 'kick',
   stats: NormalStats

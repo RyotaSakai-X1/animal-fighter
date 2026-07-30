@@ -126,12 +126,16 @@ export type SpecialSpriteSpec = CombatSpriteSpec & { offsetY: number };
 /**
  * 必殺技アニメの描画サイズ。
  *
- * 逆さスピニングバードキックの画像は脚と回転軌跡が上半分を占めるため、立ちポーズと
- * 同じ180px高だと胴体が小さく見えて別人になる。頭が画像下端＝身体の最下点なので
- * bottom-center アンカーはそのままで合う。実際に起動して見ながら詰める値。
+ * 逆さスピニングバードキックの画像（386x291）は脚と回転の軌跡が広い範囲を占めるので、
+ * 立ちポーズと同じ 180px 高で描くとキャラ自体が一段大きく見えてしまう。
+ * 立ち fight.png を 180px 高、回転画像を各サイズで実寸レンダリングして頭の大きさを
+ * 見比べた結果、155px 高（幅205px）で立ちポーズと同じ体格に見える。
+ *
+ * 頭が画像の下端＝身体の最下点なので、bottom-center アンカーを fighter.y に
+ * 合わせるだけで位置は合う（オフセット不要）。
  */
 export const getSpecialSpriteSpec = (_moveId: string): SpecialSpriteSpec => ({
-  height: 200,
+  height: 155,
   width: null,
   anchor: 'fighter',
   offsetY: 0
