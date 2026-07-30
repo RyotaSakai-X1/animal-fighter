@@ -37,6 +37,8 @@ export const makeNormal = (
   active: stats.active,
   recovery: stats.recovery,
   damage: stats.damage,
+  // 通常技はガードされたら削らない（本家スト2と同じ）
+  chipDamage: 0,
   hitbox: {
     ...(kind === 'punch' ? PUNCH_SHAPE : KICK_SHAPE),
     reach: stats.reach

@@ -33,6 +33,9 @@ export type MoveSpec = {
   active: number;
   recovery: number;
   damage: number;
+  // ガードされたときに与えるダメージ。本家スト2では通常技のガードはダメージ0で、
+  // 削りがあるのは一部の必殺技だけなので、通常技は 0 にする
+  chipDamage: number;
   hitbox: HitboxShape;
   // maxHits=1 / hitInterval=0 が単発技（Ver.6 の hasHit ラッチと同じ挙動）。
   // maxHits=0 は打撃判定を持たない技＝弾だけで当てる飛び道具

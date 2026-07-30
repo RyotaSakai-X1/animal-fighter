@@ -119,9 +119,10 @@ export type Projectile = {
   vx: number;
   frame: number;
   onScreen: boolean;
-  // 発生時の技のダメージを持たせる。弾は技より長生きするので、
+  // 発生時の技のダメージと削りを持たせる。弾は技より長生きするので、
   // 当たった時点で「どの技から出たか」を遡らずに済ませる
   damage: number;
+  chipDamage: number;
 };
 
 export type HitSpark = { x: number; y: number; frame: number };
@@ -559,22 +560,61 @@ const addGuardEffect = (state: GameState, x: number, y: number): void => {
   state.guardEffects.push({ x, y, frame: 0 });
 };
 
+// ----------------------------------------------------------------
+// 根性値（体力が減ると防御力が上がる）
+// ----------------------------------------------------------------
+
+// 本家スト2は体力144で、残り31から下でダメージが段階的に割り引かれる。
+// 体力100のこのゲームでは 144:100 で換算し、残り22から割引を始める
+// （31 × 100/144 ≒ 21.5）。1段の幅も 5 × 100/144 ≒ 3.5 に合わせてある。
+// これがないと最後の一撃も最初と同じ威力で入り、決着が唐突になる
+const DEFENSE_BANDS: readonly { minHp: number; rate: number }[] = [
+  { minHp: 22, rate: 1 },
+  { minHp: 18, rate: 0.875 },
+  { minHp: 15, rate: 0.75 },
+  { minHp: 11, rate: 0.625 },
+  { minHp: 8, rate: 0.5 },
+  { minHp: 4, rate: 0.375 },
+  { minHp: 0, rate: 0.25 }
+];
+
+// 被弾側の残り体力（ヒット前）から決まるダメージ率
+export const getDefenseRate = (hp: number): number => {
+  const band = DEFENSE_BANDS.find((entry) => hp >= entry.minHp);
+  return band?.rate ?? 0.25;
+};
+
 type HitOptions = {
   attacker: Fighter;
   target: Fighter;
   damage: number;
+  chipDamage: number;
   contactX: number;
   contactY: number;
   projectileHit: boolean;
 };
 
-// ヒット/ガードの共通処理。ガードなら 1/4 ダメージ（最低1）+ 小ノックバック、
-// 素通しならヒットスタン付与。どちらもヒットストップで全体を一瞬止める
+// ヒット/ガードの共通処理。ガードなら技の削りダメージ（通常技は0）+ 小ノックバック、
+// 素通しならヒットスタン付与。どちらも根性値で割り引かれ、
+// ヒットストップで全体を一瞬止める
 const applyHit = (state: GameState, options: HitOptions): void => {
-  const { attacker, target, damage, contactX, contactY, projectileHit } =
-    options;
+  const {
+    attacker,
+    target,
+    damage,
+    chipDamage,
+    contactX,
+    contactY,
+    projectileHit
+  } = options;
   const guarding = isGuarding(target, attacker, state.input);
-  const finalDamage = guarding ? Math.max(1, Math.floor(damage / 4)) : damage;
+  const baseDamage = guarding ? chipDamage : damage;
+  // 端数はダメージ側を切り上げる（本家の「割引値としては切り捨て」と同じ）。
+  // 割引率はヒット前の残り体力で決まる
+  const finalDamage =
+    baseDamage === 0
+      ? 0
+      : Math.ceil(baseDamage * getDefenseRate(target.hp));
   target.hp = Math.max(0, target.hp - finalDamage);
   const away = directionToOpponent(target, attacker) * -1;
   target.x = Math.max(
@@ -620,7 +660,8 @@ const spawnProjectile = (
     vx: direction * behavior.speed,
     frame: 0,
     onScreen: true,
-    damage: spec.damage
+    damage: spec.damage,
+    chipDamage: spec.chipDamage
   });
   state.events.push('projectile');
 };
@@ -691,6 +732,7 @@ const resolveAttacks = (
         attacker,
         target,
         damage: settings.damage,
+        chipDamage: settings.chipDamage,
         contactX,
         contactY,
         projectileHit: false
@@ -1026,6 +1068,7 @@ const updateProjectiles = (state: GameState): void => {
         attacker: owner,
         target,
         damage: projectile.damage,
+        chipDamage: projectile.chipDamage,
         contactX: projectile.x,
         contactY: projectile.y,
         projectileHit: true

@@ -12,6 +12,8 @@ export const DEFAULT_PROJECTILE: SpecialMove = {
   active: 1,
   recovery: 20,
   damage: 12,
+  // 飛び道具はガードしても削られる（本家スト2の波動拳と同じ）
+  chipDamage: 3,
   // 打撃判定は持たず弾だけで当てるので maxHits: 0。hitbox は使われないが型のために置く
   hitbox: { reach: 0, spread: 'forward', topOffset: 15, bottomInset: 18 },
   maxHits: 0,

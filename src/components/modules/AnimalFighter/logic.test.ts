@@ -12,6 +12,7 @@ import {
   getChargeMeter,
   getCombatSpriteSpec,
   getInitialCpuIndex,
+  getDefenseRate,
   getHitbox,
   getPoseImagePath,
   getSpecialSpriteFrame,
@@ -597,6 +598,79 @@ describe('Animal Fighter game logic', () => {
       (id) => getCharacterSpec(id).kick.hitbox.reach
     );
     expect(new Set(reaches).size).toBeGreaterThan(1);
+  });
+
+  test('discounts damage as the target gets closer to death', () => {
+    // 本家スト2の根性値（体力144で残り31から割引）を体力100へ換算した表
+    expect(getDefenseRate(100)).toBe(1);
+    expect(getDefenseRate(22)).toBe(1);
+    expect(getDefenseRate(21)).toBe(0.875);
+    expect(getDefenseRate(18)).toBe(0.875);
+    expect(getDefenseRate(17)).toBe(0.75);
+    expect(getDefenseRate(14)).toBe(0.625);
+    expect(getDefenseRate(10)).toBe(0.5);
+    expect(getDefenseRate(7)).toBe(0.375);
+    expect(getDefenseRate(3)).toBe(0.25);
+    expect(getDefenseRate(0)).toBe(0.25);
+  });
+
+  test('makes the last stretch of health take more hits than the first', () => {
+    // 13ダメージのキックを当て続けたときの必要回数。根性値がなければ
+    // 100/13 = 8回で終わるが、終盤が粘るので9回かかる
+    const hitsToKill = (damage: number): number => {
+      let hp = 100;
+      let hits = 0;
+      while (hp > 0 && hits < 100) {
+        hp = Math.max(0, hp - Math.ceil(damage * getDefenseRate(hp)));
+        hits += 1;
+      }
+      return hits;
+    };
+
+    expect(hitsToKill(13)).toBe(9);
+    expect(Math.ceil(100 / 13)).toBe(8);
+    // 小ダメージの技ほど終盤の粘りが効く
+    expect(hitsToKill(5)).toBeGreaterThan(Math.ceil(100 / 5));
+  });
+
+  test('does not chip health when a normal attack is guarded', () => {
+    // 相手と逆方向（左）を押しっぱなしでガードしながらキックを受ける
+    const fight = startActiveFight({ x: 300 }, { x: 356 });
+    let state: GameState = {
+      ...fight,
+      // CPU に近距離からキックを出させる
+      cpu: fight.cpu === null ? null : { ...fight.cpu, aiAction: 'kick' }
+    };
+
+    let guarded = false;
+    for (let index = 0; index < 90; index += 1) {
+      state = advanceGame(state, { ...createInput(), left: true });
+      if (state.events.includes('guard')) {
+        guarded = true;
+      }
+    }
+
+    expect(guarded).toBe(true);
+    // 通常技のガードは削らない（本家スト2と同じ）
+    expect(state.player?.hp).toBe(100);
+  });
+
+  test('still chips health when a projectile is guarded', () => {
+    const fight = startActiveFight({ x: 200 }, { x: 600 });
+    let state: GameState = {
+      ...fight,
+      cpu: fight.cpu === null ? null : { ...fight.cpu, aiAction: 'special' }
+    };
+
+    for (let index = 0; index < 120; index += 1) {
+      state = advanceGame(state, { ...createInput(), left: true });
+      if ((state.player?.hp ?? 100) < 100) {
+        break;
+      }
+    }
+
+    // 飛び道具の削りは3（本家の波動拳と同じ扱い）
+    expect(state.player?.hp).toBe(97);
   });
 
   test('awards a timeout round to the fighter with more health', () => {
