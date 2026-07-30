@@ -24,9 +24,11 @@ import {
   SELECT_COLUMNS,
   SELECT_SLOT_COUNT,
   setAssetStatus,
+  type CharacterId,
   type Fighter,
   type GameInput,
   type GameKey,
+  type GameScreen,
   type GameState,
   type SoundEvent
 } from './logic';
@@ -833,9 +835,25 @@ const getAudioContextConstructor = (): typeof AudioContext | undefined => {
   return window.AudioContext ?? windowWithWebkitAudio.webkitAudioContext;
 };
 
+// React 側へ渡す「対戦の見出し情報」。毎フレームの状態は React 境界を越えさせないが、
+// 技表の表示にはどのキャラが出ているかだけ必要なので、画面遷移とキャラ確定の
+// タイミングだけ setState する（60fps では再描画を起こさない）
+export type MatchSummary = {
+  screen: GameScreen;
+  playerId: CharacterId | null;
+  cpuId: CharacterId | null;
+};
+
+const EMPTY_MATCH: MatchSummary = {
+  screen: 'title',
+  playerId: null,
+  cpuId: null
+};
+
 export const useAnimalFighter = () => {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const [canvasError, setCanvasError] = useState(false);
+  const [match, setMatch] = useState<MatchSummary>(EMPTY_MATCH);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -857,6 +875,20 @@ export const useAnimalFighter = () => {
     let animationId: number | null = null;
     let disposed = false;
     let audioContext: AudioContext | null = null;
+    let matchKey = `${EMPTY_MATCH.screen}||`;
+
+    // 値が変わったフレームだけ setState する。ここで毎フレーム呼ぶと
+    // 60fps で React ツリーが再描画されてしまうので、必ず差分を見る
+    const syncMatchSummary = (state: GameState): void => {
+      const playerId = state.player?.id ?? null;
+      const cpuId = state.cpu?.id ?? null;
+      const key = `${state.screen}|${playerId ?? ''}|${cpuId ?? ''}`;
+      if (key === matchKey) {
+        return;
+      }
+      matchKey = key;
+      setMatch({ screen: state.screen, playerId, cpuId });
+    };
 
     const updateAssetStatus = (): void => {
       if (loadedAssets === IMAGE_PATHS.length) {
@@ -965,6 +997,7 @@ export const useAnimalFighter = () => {
       });
       gameState.events.forEach(playSound);
       drawGame(ctx, images, gameState);
+      syncMatchSummary(gameState);
       justPressed.clear();
       animationId = window.requestAnimationFrame(frame);
     };
@@ -993,5 +1026,5 @@ export const useAnimalFighter = () => {
     };
   }, []);
 
-  return { canvasRef, canvasError };
+  return { canvasRef, canvasError, match };
 };

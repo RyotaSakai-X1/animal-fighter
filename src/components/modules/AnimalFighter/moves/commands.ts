@@ -49,6 +49,28 @@ const DIRECTION_HELD: Record<CommandDirection, keyof InputState> = {
   right: 'right'
 };
 
+const DIRECTION_LABELS: Record<CommandDirection, string> = {
+  up: '↑',
+  down: '↓',
+  left: '←',
+  right: '→'
+};
+
+const BUTTON_LABELS: Record<CommandButton, string> = {
+  punch: 'Z',
+  kick: 'X',
+  special: 'C'
+};
+
+// コマンドを画面表示用の文字列にする。キャラごとに技が増えても操作説明を
+// 書き足さずに済むよう、技表はこの関数からデータで組み立てる
+export const describeCommand = (command: CommandSpec): string => {
+  if (command.kind === 'buttonOnly') {
+    return BUTTON_LABELS[command.trigger];
+  }
+  return `${DIRECTION_LABELS[command.charge]}溜め → ${BUTTON_LABELS[command.hold]}+${DIRECTION_LABELS[command.trigger]}`;
+};
+
 // そのキャラが溜めを必要とする方向の一覧。溜めカウンタは1本しか持たないので、
 // 別方向を入れ始めたら溜め直しになる
 export const getChargeDirections = (

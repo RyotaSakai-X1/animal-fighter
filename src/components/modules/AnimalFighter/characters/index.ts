@@ -1,6 +1,7 @@
 // キャラクターのレジストリ。エンジン（logic.ts）はここ経由でだけキャラ別データに触る。
 // 新しいキャラを足すときは characters/<id>/index.ts を作って CHARACTER_SPEC_ORDER に並べる。
 
+import { describeCommand } from '../moves/commands';
 import type {
   CharacterDefinition,
   CharacterSpec,
@@ -87,3 +88,32 @@ export const getSpecialMove = (
   moveId: string
 ): SpecialMove | undefined =>
   getCharacterSpec(id).specials.find((special) => special.id === moveId);
+
+export type MoveListEntry = {
+  id: string;
+  name: string;
+  command: string;
+  damage: string;
+};
+
+// 対戦画面の脇に出す技表。スペックから組み立てるので、キャラに技を足しても
+// UI 側を書き足す必要がない
+export const getMoveList = (id: CharacterId): readonly MoveListEntry[] => {
+  const spec = getCharacterSpec(id);
+  const describeDamage = (move: MoveSpec): string =>
+    move.maxHits > 1 ? `${move.damage}×${move.maxHits}` : `${move.damage}`;
+  const describeMove = (move: MoveSpec, command: string): MoveListEntry => ({
+    id: move.id,
+    name: move.name,
+    command,
+    damage: describeDamage(move)
+  });
+
+  return [
+    describeMove(spec.punch, 'Z'),
+    describeMove(spec.kick, 'X'),
+    ...spec.specials.map((special) =>
+      describeMove(special, describeCommand(special.command))
+    )
+  ];
+};
