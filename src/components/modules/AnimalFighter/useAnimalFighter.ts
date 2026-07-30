@@ -398,8 +398,14 @@ const drawFighter = (
   drawChargeMeter(ctx, fighter);
 
   const guarding = isGuarding(fighter, opponent, state.input);
-  // 必殺技の専用アニメがあるフレームはそちらを優先する
-  const specialFrame = getSpecialSpriteFrame(fighter);
+  const pose = getPoseImagePath(fighter, {
+    opponent,
+    roundEnd: state.roundEnd,
+    guarding
+  });
+  // 必殺技の専用アニメがあるフレームはそちらを優先する。ただし KO ポーズには譲る
+  // （タイムアップで空中必殺技中の敗者が down にならないのを防ぐ）
+  const specialFrame = pose === 'down' ? null : getSpecialSpriteFrame(fighter);
   const specialUrl =
     specialFrame === null
       ? undefined
@@ -418,11 +424,6 @@ const drawFighter = (
     return;
   }
 
-  const pose = getPoseImagePath(fighter, {
-    opponent,
-    roundEnd: state.roundEnd,
-    guarding
-  });
   const sprite = getCombatSpriteSpec(pose);
   const anchorY = sprite.anchor === 'ground' ? GROUND_Y : fighter.y;
   drawImageAnchored(ctx, images, getSpriteUrl(fighter.id, pose), fighter.x, {

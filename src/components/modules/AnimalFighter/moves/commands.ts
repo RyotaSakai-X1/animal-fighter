@@ -95,6 +95,14 @@ export const updateChargeState = (
   // 同じフレームで破棄すると「猶予の最終フレームに入力しても成立しない」ことになる
   if (fighter.chargeGrace > 0) {
     fighter.chargeGrace -= 1;
+    // 猶予中もカウンタを上限まで進める。完成直後に方向キーを離しても
+    // 完成パルスの演出（chargeFrames - CHARGE_REQUIRED_FRAMES）が進み切る
+    if (
+      fighter.chargeFrames >= CHARGE_REQUIRED_FRAMES &&
+      fighter.chargeFrames < CHARGE_COUNTER_MAX
+    ) {
+      fighter.chargeFrames += 1;
+    }
     return false;
   }
   fighter.chargeFrames = 0;

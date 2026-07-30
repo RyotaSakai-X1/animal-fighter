@@ -67,8 +67,6 @@ export const JUMP_VELOCITY = -15;
 export const SELECT_SLOT_COUNT = 10;
 export const SELECT_COLUMNS = 5;
 
-export { DEFAULT_CPU_TABLE as CPU_PROBABILITIES } from './characters/shared/cpu';
-
 // ----------------------------------------------------------------
 // 型定義（ファイター・画面・入力・ゲーム全体の状態）
 // ----------------------------------------------------------------
@@ -654,7 +652,8 @@ const getFighter = (state: GameState, id: CharacterId): Fighter | null => {
   return null;
 };
 
-// 進行中の攻撃を解決する。打撃は持続中に1回だけヒット判定（hasHit で多段防止）、
+// 進行中の攻撃を解決する。打撃は canLandHit が許すフレームでヒット判定を取り
+// （単発技は maxHits=1 で1回だけ、多段技は hitInterval おきに）、
 // 飛び道具は発生フレームで弾を生成する
 const resolveAttacks = (
   state: GameState,
@@ -823,13 +822,17 @@ const updatePlayer = (
   fighter.crouching = input.down && fighter.grounded;
 
   // 必殺技のコマンド判定はジャンプ・通常技より先。↑ を含むコマンド（溜め技）は
-  // ここで justPressed('ArrowUp') を消費するので、通常ジャンプが暴発しない
+  // ここで justPressed('ArrowUp') を消費するので、通常ジャンプが暴発しない。
+  // コマンドが成立していれば startAttack が失敗（クールダウン中など）しても
+  // ジャンプには落とさない。「必殺技を出すつもりの入力でジャンプが出る」のが
+  // 一番避けたい暴発なので、その場合は何も起きないのが正しい
   const special = matchSpecialCommand(
     fighter,
     getCharacterSpec(fighter.id).specials,
     input
   );
-  if (special !== null && startAttack(state, fighter, special.id)) {
+  if (special !== null) {
+    startAttack(state, fighter, special.id);
     fighter.vx = 0;
     return;
   }
@@ -1066,8 +1069,10 @@ const advanceAttack = (fighter: Fighter): void => {
   const behavior = settings.behavior;
   if (behavior !== null && behavior.kind === 'airborneSpin') {
     if (attack.landingFrames >= 0) {
+      // 接地を検知したフレームで landingRecovery を積み、そこから
+      // ちょうど landingRecovery フレームで解放する
       attack.landingFrames -= 1;
-      if (attack.landingFrames < 0) {
+      if (attack.landingFrames <= 0) {
         fighter.attack = null;
       }
       return;

@@ -1,3 +1,4 @@
+import { specialSpriteUrls } from './assets';
 import { getCharacterSpec } from './characters';
 import {
   advanceGame,
@@ -846,6 +847,95 @@ describe('Animal Fighter special moves', () => {
     expect(state.projectiles).toHaveLength(1);
     expect(state.projectiles[0]?.vx).toBe(6);
     expect(state.projectiles[0]?.y).toBe(GROUND_Y - 94);
+  });
+
+  test('keeps airborne spin specs consistent with the engine assumptions', () => {
+    for (const id of CHARACTER_IDS) {
+      for (const special of getCharacterSpec(id).specials) {
+        const behavior = special.behavior;
+        if (behavior === null || behavior.kind !== 'airborneSpin') {
+          continue;
+        }
+        // 打ち上げは applyMoveMotion の frame === startup のフレームだけが行うので、
+        // 0 だとそのフレームが来ないまま着地判定が成立して技が不発になる
+        expect(special.startup).toBeGreaterThanOrEqual(1);
+        expect(behavior.riseVelocity).toBeLessThan(0);
+        expect(behavior.landingRecovery).toBeGreaterThanOrEqual(0);
+        // アニメの枚数が実際の画像枚数と一致していないと、足りない番号で
+        // 静かに通常ポーズへフォールバックする
+        const frames = specialSpriteUrls[id]?.[special.id];
+        expect(frames, `${id}/${special.id} needs sprite frames`).toBeDefined();
+        expect(frames).toHaveLength(special.animation?.frameCount ?? 0);
+      }
+    }
+  });
+
+  test('holds the landing recovery for exactly landingRecovery frames', () => {
+    const fired = pressUpWithSpecial(
+      holdDown(startChunliFight(300, 700), CHARGE_REQUIRED_FRAMES)
+    );
+
+    // 着地した最初のフレームまで進める
+    let state = fired;
+    let guard = 0;
+    while (
+      guard < 200 &&
+      (state.player?.attack?.landingFrames ?? -1) < 0 &&
+      state.player?.attack != null
+    ) {
+      state = advanceGame(state, createInput());
+      guard += 1;
+    }
+    const landingRecovery = 14;
+    expect(state.player?.attack?.landingFrames).toBe(landingRecovery);
+    expect(state.player?.grounded).toBe(true);
+
+    // ここからちょうど landingRecovery フレームで技が終わる（+1 に伸びていないこと）
+    for (let index = 0; index < landingRecovery - 1; index += 1) {
+      state = advanceGame(state, createInput());
+      expect(state.player?.attack).not.toBeNull();
+    }
+    state = advanceGame(state, createInput());
+    expect(state.player?.attack).toBeNull();
+  });
+
+  test('starts the spin animation on the first frame after launch', () => {
+    const spec = getCharacterSpec('chunli').specials[0];
+    if (spec === undefined) {
+      throw new Error('Chun-Li must have a special.');
+    }
+    const at = (frame: number): number | undefined =>
+      getSpecialSpriteFrame(
+        createFighter({
+          ...chunliDefinition,
+          grounded: false,
+          attack: createAttack(spec.id, { frame })
+        })
+      )?.index;
+
+    // 発生フレーム起点で 3F ずつ 0→1→2→3→0 と回る（離陸直後に4枚目が覗かない）
+    expect(at(spec.startup)).toBe(0);
+    expect(at(spec.startup + 2)).toBe(0);
+    expect(at(spec.startup + 3)).toBe(1);
+    expect(at(spec.startup + 11)).toBe(3);
+    expect(at(spec.startup + 12)).toBe(0);
+  });
+
+  test('does not turn a cooldown-blocked command into a jump', () => {
+    const charged = holdDown(startChunliFight(300, 700), CHARGE_REQUIRED_FRAMES);
+    const onCooldown: GameState = {
+      ...charged,
+      player:
+        charged.player === null
+          ? null
+          : { ...charged.player, specialCooldown: 40 }
+    };
+    const attempted = pressUpWithSpecial(onCooldown);
+
+    // 必殺技も出ないが、ジャンプにも化けない
+    expect(attempted.player?.attack).toBeNull();
+    expect(attempted.player?.grounded).toBe(true);
+    expect(attempted.player?.vy).toBe(0);
   });
 
   test('keeps every CPU probability table summing to 1.0', () => {

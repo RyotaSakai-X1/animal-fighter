@@ -115,9 +115,12 @@ export const getSpecialSpriteFrame = (
     return null;
   }
   const { frameCount, interval } = special.animation;
+  // 発生フレームを 0 起点にする。技の絶対フレームで割ると、離陸した瞬間に
+  // 循環の途中（例: 4枚目）が1フレームだけ表示されてしまう
+  const spinFrame = attack.frame - special.startup;
   return {
     moveId: attack.moveId,
-    index: Math.floor(attack.frame / interval) % frameCount
+    index: Math.floor(spinFrame / interval) % frameCount
   };
 };
 
