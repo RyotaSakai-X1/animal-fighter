@@ -16,7 +16,9 @@ import {
   getHitbox,
   getPoseImagePath,
   getSpecialSpriteFrame,
+  GROUND_SPEED,
   GROUND_Y,
+  HITSTUN_SLIDE,
   isGuarding,
   rectanglesOverlap,
   SELECT_SLOT_COUNT,
@@ -1273,8 +1275,8 @@ describe('Animal Fighter yoga fire', () => {
     const before = getFighters(fired).cpu.x;
     const finished = runUntilAttackEnds(fired);
 
-    // 押し出し200px + ヒットスタン中の3Fスライド18px = 218px（通常技は 6+18=24px）
-    expect(getFighters(finished).cpu.x - before).toBe(218);
+    // 押し出し110px + ヒットスタン中の3Fスライド18px = 128px（通常技は 6+18=24px）
+    expect(getFighters(finished).cpu.x - before).toBe(128);
   });
 
   test('chips a guarding target', () => {
@@ -1312,6 +1314,18 @@ describe('Animal Fighter yoga fire', () => {
     expect(state.cpu?.hp).toBeLessThan(100);
     // 伸びきった4枚目まで表示される
     expect([...seen].sort()).toEqual([0, 1, 2, 3]);
+  });
+
+  test('leaves the opponent room to close the distance', () => {
+    const yogaFire = dhalsimSpecials[0];
+    if (yogaFire === undefined) {
+      throw new Error('Dhalsim must have a special.');
+    }
+    // クールダウンの間に相手が歩ける距離を吹っ飛ばしが食い潰すと、
+    // 撃ち続けるだけで永久に近寄れない詰み状態になる。
+    // 半分以下に抑えて、1サイクルごとに必ず間合いが縮むようにする
+    const walkPerCycle = yogaFire.cooldown * GROUND_SPEED;
+    expect(yogaFire.knockback + HITSTUN_SLIDE).toBeLessThan(walkPerCycle / 2);
   });
 
   test('blasts the target out of walking-back range', () => {

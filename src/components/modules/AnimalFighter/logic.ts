@@ -50,6 +50,11 @@ export const ROUND_TIME_FRAMES = ROUND_TIME_SECONDS * FRAME_RATE;
 export const INTRO_FRAMES = 60;
 export const KO_FRAMES = 90;
 export const HITSTOP_FRAMES = 4;
+// のけぞり中のずり下がり。技ごとの MoveSpec.knockback とは別に、全ヒット共通で乗る
+export const HITSTUN_SLIDE_FRAMES = 3;
+export const HITSTUN_SLIDE_PER_FRAME = 6;
+export const HITSTUN_SLIDE =
+  HITSTUN_SLIDE_FRAMES * HITSTUN_SLIDE_PER_FRAME;
 export const BACKGROUND_COUNT = 5;
 export const GROUND_SPEED = 3;
 // 空中横速度。滞空 ~43F × 2.5 ≒ 横107px 動けるので体幅 54px を余裕を持って飛び越えられる
@@ -996,8 +1001,11 @@ const updateFighter = (
 
   if (fighter.hitstun > 0) {
     const away = directionToOpponent(fighter, opponent) * -1;
-    if (fighter.hitstunElapsed < 3) {
-      fighter.x = Math.max(MIN_X, Math.min(MAX_X, fighter.x + away * 6));
+    if (fighter.hitstunElapsed < HITSTUN_SLIDE_FRAMES) {
+      fighter.x = Math.max(
+        MIN_X,
+        Math.min(MAX_X, fighter.x + away * HITSTUN_SLIDE_PER_FRAME)
+      );
       fighter.hitstunElapsed += 1;
     }
     fighter.hitstun -= 1;
