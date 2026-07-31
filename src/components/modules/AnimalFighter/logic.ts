@@ -608,38 +608,6 @@ export const getDefenseRate = (hp: number): number => {
   return band?.rate ?? 0.25;
 };
 
-// 炎は当たった時点で引っ込み始める（本家の飛び道具が接触で消えるのと同じ）。
-// maxHits=1 なので伸ばしたままだと、相手はもう当たらない炎の中を歩いて詰められる。
-// アニメも判定も attack.frame から引いているので、コマを送るだけで両方縮む
-const retractExtendingFlame = (fighter: Fighter, spec: MoveSpec): void => {
-  const behavior = spec.behavior;
-  const attack = fighter.attack;
-  if (
-    attack === null ||
-    behavior === null ||
-    behavior.kind !== 'extendingFlame'
-  ) {
-    return;
-  }
-  const animation = getSpecialMove(fighter.id, spec.id)?.animation;
-  if (animation === undefined || animation === null) {
-    return;
-  }
-  const reaches = behavior.reachByStep;
-  const step = getAnimationStep(animation, attack.frame);
-  const current = reaches[step];
-  if (current === undefined) {
-    return;
-  }
-  // 同じリーチの「引っ込み側」のコマへ飛ばす。伸びと縮みが対称な前提
-  for (let index = reaches.length - 1; index > step; index -= 1) {
-    if (reaches[index] === current) {
-      attack.frame = index * animation.interval;
-      return;
-    }
-  }
-};
-
 type HitOptions = {
   attacker: Fighter;
   target: Fighter;
@@ -693,9 +661,6 @@ const applyHit = (state: GameState, options: HitOptions): void => {
     const spec = getMoveSpec(attacker.id, attacker.attack.moveId);
     attacker.attack.hitsLanded += 1;
     attacker.attack.hitCooldown = spec?.hitInterval ?? 0;
-    if (spec !== undefined) {
-      retractExtendingFlame(attacker, spec);
-    }
   }
   state.hitStopFrames = HITSTOP_FRAMES;
 };

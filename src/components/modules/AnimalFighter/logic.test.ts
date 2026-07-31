@@ -1273,8 +1273,8 @@ describe('Animal Fighter yoga fire', () => {
     const before = getFighters(fired).cpu.x;
     const finished = runUntilAttackEnds(fired);
 
-    // 押し出し30px + ヒットスタン中の3Fスライド18px = 48px（通常技は 6+18=24px）
-    expect(getFighters(finished).cpu.x - before).toBe(48);
+    // 押し出し200px + ヒットスタン中の3Fスライド18px = 218px（通常技は 6+18=24px）
+    expect(getFighters(finished).cpu.x - before).toBe(218);
   });
 
   test('chips a guarding target', () => {
@@ -1294,22 +1294,37 @@ describe('Animal Fighter yoga fire', () => {
     expect(state.player?.hp).toBe(98);
   });
 
-  test('retracts the flame on contact so the target cannot walk through it', () => {
-    const framesUntilDone = (cpuX: number): number => {
-      let state = pressForward(
-        holdDown(startDhalsimFight(300, cpuX), CHARGE_REQUIRED_FRAMES)
-      );
-      let frames = 0;
-      while (state.player?.attack != null && frames < 200) {
-        state = advanceGame(state, createInput());
-        frames += 1;
+  test('still shows the full flame after a point blank hit', () => {
+    // 密着だと最小の炎（コマ2）で当たるが、そこで技を打ち切ってはいけない。
+    // 当たった時点で引っ込めると、大きい炎が一度も出ないまま終わって技に見えなくなる
+    let state = pressForward(
+      holdDown(startDhalsimFight(300, 366), CHARGE_REQUIRED_FRAMES)
+    );
+    const seen = new Set<number>();
+    while (state.player?.attack != null) {
+      const frame = getSpecialSpriteFrame(state.player);
+      if (frame !== null) {
+        seen.add(frame.index);
       }
-      return frames;
-    };
+      state = advanceGame(state, createInput());
+    }
 
-    // 当たると引っ込むので、空振りより早く終わる。
-    // 伸ばしたままだと相手はもう当たらない炎の中を歩いて詰められる
-    expect(framesUntilDone(366)).toBeLessThan(framesUntilDone(760));
+    expect(state.cpu?.hp).toBeLessThan(100);
+    // 伸びきった4枚目まで表示される
+    expect([...seen].sort()).toEqual([0, 1, 2, 3]);
+  });
+
+  test('blasts the target out of walking-back range', () => {
+    const fired = pressForward(
+      holdDown(startDhalsimFight(300, 366), CHARGE_REQUIRED_FRAMES)
+    );
+    const before = getFighters(fired).cpu.x;
+    const finished = runUntilAttackEnds(fired);
+    const gained = getFighters(finished).cpu.x - before;
+
+    // 技の残り時間で歩いて戻れる距離（約18F×3px）より遠くへ飛ばす。
+    // ここが足りないと、当たらなくなった炎の中を素通りして詰められる
+    expect(gained).toBeGreaterThan(60);
   });
 
   test('keeps extending flame reach in step with the animation', () => {
