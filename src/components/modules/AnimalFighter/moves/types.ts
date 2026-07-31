@@ -33,6 +33,8 @@ export type MoveSpec = {
   damage: number;
   // ガードされたときのダメージ。本家スト2と同じく通常技は 0
   chipDamage: number;
+  // ヒット時に相手を押し戻す距離(px)。ガードは 2/3。飛び道具ほど大きい
+  knockback: number;
   hitbox: HitboxShape;
   // maxHits=1 が単発技、0 は打撃判定を持たない技（弾だけで当てる）
   maxHits: number;

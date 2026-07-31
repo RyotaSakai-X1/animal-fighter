@@ -13,6 +13,8 @@ export const DEFAULT_PROJECTILE: SpecialMove = {
   damage: 12,
   // 本家の波動拳と同じくガードしても削る
   chipDamage: 3,
+  // Ver.6 から据え置き。他8キャラの間合いを変えないため
+  knockback: 6,
   // 弾だけで当てるので打撃判定なし。hitbox は型のためのダミー
   hitbox: { reach: 0, spread: 'forward', topOffset: 15, bottomInset: 18 },
   maxHits: 0,

@@ -18,6 +18,9 @@ export const YOGA_FIRE: SpecialMove = {
   recovery: 18,
   damage: 10,
   chipDamage: 2,
+  // ヒットスタン中の 3F スライド(18px)と合わせて計48px≒体1つ分下がる（通常技は24px）。
+  // 押し返せないと、ダルシムが張り付かれて何もできなくなる
+  knockback: 30,
   // reach は最大値。実際の判定はコマごとに reachByStep から引く。
   // 炎は口の高さの帯だが、しゃがみ(66px)にも当たるよう下端を余らせる
   hitbox: { reach: 317, spread: 'forward', topOffset: 20, bottomInset: 40 },

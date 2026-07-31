@@ -1266,6 +1266,52 @@ describe('Animal Fighter yoga fire', () => {
     }
   });
 
+  test('knocks the target back much further than a normal', () => {
+    const fired = pressForward(
+      holdDown(startDhalsimFight(300, 420), CHARGE_REQUIRED_FRAMES)
+    );
+    const before = getFighters(fired).cpu.x;
+    const finished = runUntilAttackEnds(fired);
+
+    // 押し出し30px + ヒットスタン中の3Fスライド18px = 48px（通常技は 6+18=24px）
+    expect(getFighters(finished).cpu.x - before).toBe(48);
+  });
+
+  test('chips a guarding target', () => {
+    // CPU ダルシムに撃たせ、プレイヤーは逆方向（左）を押しっぱなしでガードする
+    const fight = startActiveFight(
+      { x: 500 },
+      { ...dhalsimDefinition, x: 600, aiAction: 'special' }
+    );
+    let state = fight;
+    for (let index = 0; index < 120; index += 1) {
+      state = advanceGame(state, { ...createInput(), left: true });
+      if ((state.player?.hp ?? 100) < 100) {
+        break;
+      }
+    }
+
+    expect(state.player?.hp).toBe(98);
+  });
+
+  test('retracts the flame on contact so the target cannot walk through it', () => {
+    const framesUntilDone = (cpuX: number): number => {
+      let state = pressForward(
+        holdDown(startDhalsimFight(300, cpuX), CHARGE_REQUIRED_FRAMES)
+      );
+      let frames = 0;
+      while (state.player?.attack != null && frames < 200) {
+        state = advanceGame(state, createInput());
+        frames += 1;
+      }
+      return frames;
+    };
+
+    // 当たると引っ込むので、空振りより早く終わる。
+    // 伸ばしたままだと相手はもう当たらない炎の中を歩いて詰められる
+    expect(framesUntilDone(366)).toBeLessThan(framesUntilDone(760));
+  });
+
   test('keeps extending flame reach in step with the animation', () => {
     for (const id of CHARACTER_IDS) {
       for (const special of getCharacterSpec(id).specials) {

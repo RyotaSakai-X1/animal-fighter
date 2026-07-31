@@ -114,9 +114,10 @@ export type Projectile = {
   vx: number;
   frame: number;
   onScreen: boolean;
-  // 弾は技より長生きするので、発生時のダメージと削りを持たせる
+  // 弾は技より長生きするので、発生時のダメージ・削り・押し戻しを持たせる
   damage: number;
   chipDamage: number;
+  knockback: number;
 };
 
 export type HitSpark = { x: number; y: number; frame: number };
@@ -607,11 +608,44 @@ export const getDefenseRate = (hp: number): number => {
   return band?.rate ?? 0.25;
 };
 
+// 炎は当たった時点で引っ込み始める（本家の飛び道具が接触で消えるのと同じ）。
+// maxHits=1 なので伸ばしたままだと、相手はもう当たらない炎の中を歩いて詰められる。
+// アニメも判定も attack.frame から引いているので、コマを送るだけで両方縮む
+const retractExtendingFlame = (fighter: Fighter, spec: MoveSpec): void => {
+  const behavior = spec.behavior;
+  const attack = fighter.attack;
+  if (
+    attack === null ||
+    behavior === null ||
+    behavior.kind !== 'extendingFlame'
+  ) {
+    return;
+  }
+  const animation = getSpecialMove(fighter.id, spec.id)?.animation;
+  if (animation === undefined || animation === null) {
+    return;
+  }
+  const reaches = behavior.reachByStep;
+  const step = getAnimationStep(animation, attack.frame);
+  const current = reaches[step];
+  if (current === undefined) {
+    return;
+  }
+  // 同じリーチの「引っ込み側」のコマへ飛ばす。伸びと縮みが対称な前提
+  for (let index = reaches.length - 1; index > step; index -= 1) {
+    if (reaches[index] === current) {
+      attack.frame = index * animation.interval;
+      return;
+    }
+  }
+};
+
 type HitOptions = {
   attacker: Fighter;
   target: Fighter;
   damage: number;
   chipDamage: number;
+  knockback: number;
   contactX: number;
   contactY: number;
   projectileHit: boolean;
@@ -625,6 +659,7 @@ const applyHit = (state: GameState, options: HitOptions): void => {
     target,
     damage,
     chipDamage,
+    knockback,
     contactX,
     contactY,
     projectileHit
@@ -638,10 +673,9 @@ const applyHit = (state: GameState, options: HitOptions): void => {
       : Math.ceil(baseDamage * getDefenseRate(target.hp));
   target.hp = Math.max(0, target.hp - finalDamage);
   const away = directionToOpponent(target, attacker) * -1;
-  target.x = Math.max(
-    MIN_X,
-    Math.min(MAX_X, target.x + away * (guarding ? 4 : 6))
-  );
+  // ガードは 2/3（通常技なら 6→4 で Ver.6 と同じ）
+  const distance = guarding ? Math.round((knockback * 2) / 3) : knockback;
+  target.x = Math.max(MIN_X, Math.min(MAX_X, target.x + away * distance));
 
   if (guarding) {
     addGuardEffect(state, contactX, contactY);
@@ -659,6 +693,9 @@ const applyHit = (state: GameState, options: HitOptions): void => {
     const spec = getMoveSpec(attacker.id, attacker.attack.moveId);
     attacker.attack.hitsLanded += 1;
     attacker.attack.hitCooldown = spec?.hitInterval ?? 0;
+    if (spec !== undefined) {
+      retractExtendingFlame(attacker, spec);
+    }
   }
   state.hitStopFrames = HITSTOP_FRAMES;
 };
@@ -682,7 +719,8 @@ const spawnProjectile = (
     frame: 0,
     onScreen: true,
     damage: spec.damage,
-    chipDamage: spec.chipDamage
+    chipDamage: spec.chipDamage,
+    knockback: spec.knockback
   });
   state.events.push('projectile');
 };
@@ -752,6 +790,7 @@ const resolveAttacks = (
         target,
         damage: settings.damage,
         chipDamage: settings.chipDamage,
+        knockback: settings.knockback,
         contactX,
         contactY,
         projectileHit: false
@@ -1081,6 +1120,7 @@ const updateProjectiles = (state: GameState): void => {
         target,
         damage: projectile.damage,
         chipDamage: projectile.chipDamage,
+        knockback: projectile.knockback,
         contactX: projectile.x,
         contactY: projectile.y,
         projectileHit: true
