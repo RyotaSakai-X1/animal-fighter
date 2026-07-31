@@ -12,6 +12,7 @@ import {
   getSpecialMove
 } from './characters';
 import type { CharacterId } from './characters/ids';
+import { getAnimationStep } from './moves/animation';
 import {
   getChargeDirections,
   matchSpecialCommand,
@@ -156,7 +157,12 @@ export type GameKey =
   | 'KeyX'
   | 'KeyC'
   | 'Enter'
-  | 'Escape';
+  | 'Escape'
+  | 'Space';
+
+// 対戦中のポーズメニュー。ラベルと項目数がずれないよう1か所で持つ
+export const PAUSE_MENU_ITEMS: readonly string[] = ['再開', 'タイトルへ'];
+const PAUSE_MENU_RETURN_TO_TITLE = 1;
 
 export type GameInput = InputState & {
   justPressed: ReadonlySet<GameKey>;
@@ -175,6 +181,9 @@ export type GameState = {
   phaseFrames: number;
   timeFrames: number;
   roundEnd: RoundEnd | null;
+  // 対戦中の一時停止。rAF は止めず updateFight を呼ばないことで進行だけ凍らせる
+  paused: boolean;
+  pauseIndex: number;
   backgroundIndex: number;
   hitStopFrames: number;
   projectiles: Projectile[];
@@ -230,6 +239,8 @@ export const createInitialGameState = (): GameState => ({
   phaseFrames: INTRO_FRAMES,
   timeFrames: ROUND_TIME_FRAMES,
   roundEnd: null,
+  paused: false,
+  pauseIndex: 0,
   backgroundIndex: 0,
   hitStopFrames: 0,
   projectiles: [],
@@ -321,7 +332,10 @@ const startRound = (state: GameState): GameState => {
     roundPhase: 'intro',
     phaseFrames: INTRO_FRAMES,
     timeFrames: ROUND_TIME_FRAMES,
-    roundEnd: null
+    roundEnd: null,
+    // ラウンドや試合をまたいでポーズが残らないようにする
+    paused: false,
+    pauseIndex: 0
   };
 };
 
@@ -374,6 +388,8 @@ const resetToTitle = (state: GameState): GameState => ({
   player: null,
   cpu: null,
   roundEnd: null,
+  paused: false,
+  pauseIndex: 0,
   projectiles: [],
   hitSparks: [],
   guardEffects: []
@@ -516,6 +532,22 @@ const moveIsActive = (fighter: Fighter, spec: MoveSpec): boolean => {
   return attackIsActive(attack, spec);
 };
 
+// 伸縮する炎は絵と判定を一致させたいので、アニメのコマごとにリーチが変わる。
+// 炎が描かれていないコマは 0 で、そのフレームは判定なし
+const getMoveReach = (fighter: Fighter, spec: MoveSpec): number => {
+  const behavior = spec.behavior;
+  if (behavior === null || behavior.kind !== 'extendingFlame') {
+    return spec.hitbox.reach;
+  }
+  const attack = fighter.attack;
+  const special = getSpecialMove(fighter.id, spec.id);
+  if (attack === null || special === undefined || special.animation === null) {
+    return spec.hitbox.reach;
+  }
+  const step = getAnimationStep(special.animation, attack.frame);
+  return behavior.reachByStep[step] ?? 0;
+};
+
 // 打撃の攻撃判定矩形。体の矩形を hitbox の設定ぶん広げる。
 // maxHits=0 の技は打撃判定を持たない（弾だけで当てる）ので null
 const getAttackBox = (fighter: Fighter, spec: MoveSpec): Hitbox | null => {
@@ -523,21 +555,26 @@ const getAttackBox = (fighter: Fighter, spec: MoveSpec): Hitbox | null => {
     return null;
   }
   const shape = spec.hitbox;
+  const reach = getMoveReach(fighter, spec);
+  // リーチ0を体の矩形のまま返すと、密着しているだけで当たってしまう
+  if (reach <= 0) {
+    return null;
+  }
   const body = getHitbox(fighter);
   const top = body.top + shape.topOffset;
   const bottom = body.bottom - shape.bottomInset;
   if (shape.spread === 'both') {
     return {
-      left: body.left - shape.reach,
-      right: body.right + shape.reach,
+      left: body.left - reach,
+      right: body.right + reach,
       top,
       bottom
     };
   }
   if (fighter.facing === 1) {
-    return { left: body.left, right: body.right + shape.reach, top, bottom };
+    return { left: body.left, right: body.right + reach, top, bottom };
   }
-  return { left: body.left - shape.reach, right: body.right, top, bottom };
+  return { left: body.left - reach, right: body.right, top, bottom };
 };
 
 const addHitSpark = (state: GameState, x: number, y: number): void => {
@@ -1219,6 +1256,43 @@ const updateFight = (
 };
 
 // ----------------------------------------------------------------
+// ポーズ
+// ----------------------------------------------------------------
+
+// Space でトグルし、ポーズ中は updateFight を呼ばない。
+// intro/hitstop/roundEnd と同じく rAF は回したままにする（止めるとオーバーレイも固まり、
+// justPressed が溜まって解除の瞬間に暴発する）
+const updatePause = (state: GameState, input: GameInput): GameState => {
+  if (!state.paused) {
+    // KO 演出中は受け付けない（リザルトへの遷移が止まってしまう）
+    if (state.roundEnd === null && input.justPressed.has('Space')) {
+      state.paused = true;
+      state.pauseIndex = 0;
+    }
+    return state;
+  }
+
+  if (input.justPressed.has('Space')) {
+    state.paused = false;
+    return state;
+  }
+  const length = PAUSE_MENU_ITEMS.length;
+  if (input.justPressed.has('ArrowUp')) {
+    state.pauseIndex = (state.pauseIndex + length - 1) % length;
+  }
+  if (input.justPressed.has('ArrowDown')) {
+    state.pauseIndex = (state.pauseIndex + 1) % length;
+  }
+  if (input.justPressed.has('Enter')) {
+    if (state.pauseIndex === PAUSE_MENU_RETURN_TO_TITLE) {
+      return resetToTitle(state);
+    }
+    state.paused = false;
+  }
+  return state;
+};
+
+// ----------------------------------------------------------------
 // エントリポイント（画面ごとの入力処理と遷移）
 // title → select → cpu-select → stage-select → fight → result。Escape で逆順に戻る
 // ----------------------------------------------------------------
@@ -1325,7 +1399,10 @@ export const advanceGame = (
       next = beginMatch(next);
     }
   } else if (next.screen === 'fight') {
-    next = updateFight(next, input, random);
+    next = updatePause(next, input);
+    if (next.screen === 'fight' && !next.paused) {
+      next = updateFight(next, input, random);
+    }
   } else if (next.screen === 'result' && input.justPressed.has('Enter')) {
     next = resetToTitle(next);
   }

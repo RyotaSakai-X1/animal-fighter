@@ -16,7 +16,26 @@ export const CHARGE_GRACE_FRAMES = 10;
 export const CHARGE_PULSE_FRAMES = 8;
 export const CHARGE_COUNTER_MAX = CHARGE_REQUIRED_FRAMES + CHARGE_PULSE_FRAMES;
 
-const DIRECTION_KEYS: Record<CommandDirection, GameKey> = {
+// forward/back を facing で実キーへ落としてから引く
+type AbsoluteDirection = Extract<
+  CommandDirection,
+  'up' | 'down' | 'left' | 'right'
+>;
+
+const resolveDirection = (
+  direction: CommandDirection,
+  facing: -1 | 1
+): AbsoluteDirection => {
+  if (direction === 'forward') {
+    return facing === 1 ? 'right' : 'left';
+  }
+  if (direction === 'back') {
+    return facing === 1 ? 'left' : 'right';
+  }
+  return direction;
+};
+
+const DIRECTION_KEYS: Record<AbsoluteDirection, GameKey> = {
   up: 'ArrowUp',
   down: 'ArrowDown',
   left: 'ArrowLeft',
@@ -36,18 +55,21 @@ const BUTTON_HELD: Record<CommandButton, keyof InputState> = {
   special: 'projectile'
 };
 
-const DIRECTION_HELD: Record<CommandDirection, keyof InputState> = {
+const DIRECTION_HELD: Record<AbsoluteDirection, keyof InputState> = {
   up: 'up',
   down: 'down',
   left: 'left',
   right: 'right'
 };
 
+// forward/back は矢印にしない。向きで指すキーが変わるので、'前'/'後ろ' の方が誤解がない
 const DIRECTION_LABELS: Record<CommandDirection, string> = {
   up: '↑',
   down: '↓',
   left: '←',
-  right: '→'
+  right: '→',
+  forward: '前',
+  back: '後ろ'
 };
 
 const BUTTON_LABELS: Record<CommandButton, string> = {
@@ -112,7 +134,8 @@ export const updateChargeState = (
     return false;
   }
   const held = directions.find(
-    (direction) => input[DIRECTION_HELD[direction]]
+    (direction) =>
+      input[DIRECTION_HELD[resolveDirection(direction, fighter.facing)]]
   );
   if (held !== undefined) {
     if (fighter.chargeDirection !== held) {
@@ -160,7 +183,9 @@ const matchesCommand = (
     fighter.chargeDirection === command.charge &&
     fighter.chargeFrames >= command.chargeFrames &&
     input[BUTTON_HELD[command.hold]] &&
-    input.justPressed.has(DIRECTION_KEYS[command.trigger])
+    input.justPressed.has(
+      DIRECTION_KEYS[resolveDirection(command.trigger, fighter.facing)]
+    )
   );
 };
 

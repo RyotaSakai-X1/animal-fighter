@@ -4,6 +4,7 @@
 import { getCharacterSpec, getMoveSpec, getSpecialMove } from './characters';
 import type { CharacterId } from './characters/ids';
 import type { Fighter, RoundEnd } from './logic';
+import { getAnimationFrameIndex } from './moves/animation';
 import {
   CHARGE_PULSE_FRAMES,
   CHARGE_REQUIRED_FRAMES,
@@ -91,7 +92,8 @@ export const getCombatSpriteSpec = (pose: CombatPose): CombatSpriteSpec => {
 export type SpecialSpriteFrame = { moveId: string; index: number };
 
 // 専用アニメを描くフレームなら {技id, 画像番号} を返す。null なら通常ポーズ経路へ。
-// 回るのは滞空中だけで、地上の溜めと着地硬直は MoveSpec.pose に任せる
+// 滞空を要求するのは回転技だけ（地上の溜めと着地硬直は MoveSpec.pose に任せる）。
+// 地上技はモーションの頭からアニメを回す
 export const getSpecialSpriteFrame = (
   fighter: Fighter
 ): SpecialSpriteFrame | null => {
@@ -103,28 +105,54 @@ export const getSpecialSpriteFrame = (
   if (special === undefined || special.animation === null) {
     return null;
   }
-  if (fighter.grounded || attack.frame < special.startup) {
-    return null;
+  if (special.behavior?.kind === 'airborneSpin') {
+    if (fighter.grounded || attack.frame < special.startup) {
+      return null;
+    }
+    // 発生フレームを 0 起点にする（絶対フレームだと離陸直後に循環の途中が1F覗く）
+    return {
+      moveId: attack.moveId,
+      index: getAnimationFrameIndex(
+        special.animation,
+        attack.frame - special.startup
+      )
+    };
   }
-  const { frameCount, interval } = special.animation;
-  // 発生フレームを 0 起点にする（絶対フレームだと離陸直後に循環の途中が1F覗く）
-  const spinFrame = attack.frame - special.startup;
   return {
     moveId: attack.moveId,
-    index: Math.floor(spinFrame / interval) % frameCount
+    index: getAnimationFrameIndex(special.animation, attack.frame)
   };
 };
 
-export type SpecialSpriteSpec = CombatSpriteSpec & { offsetY: number };
+// anchorX は画像幅に対する比率で、この列が fighter.x に来る。
+// 炎のように片側だけ伸びるスプライトは中心アンカーだと体が逆側へ流れる
+export type SpecialSpriteSpec = CombatSpriteSpec & {
+  anchorX: number;
+  offsetY: number;
+};
 
-// 回転画像は脚と軌跡が広いので180px高だと体格が大きく見える（実寸比較で155pxに決めた）。
-// 頭が画像の下端＝最下点なので bottom-center アンカーのままで位置が合う
-export const getSpecialSpriteSpec = (_moveId: string): SpecialSpriteSpec => ({
-  height: 155,
-  width: null,
-  anchor: 'fighter',
-  offsetY: 0
-});
+export const getSpecialSpriteSpec = (moveId: string): SpecialSpriteSpec => {
+  // scripts/normalize-sprite-sequence.mjs が出力した 832x324 の4枚に対応する値。
+  // 4枚とも立ち位置が同じ列（145/832）・接地が同じ行に揃えてあるので定数1つで足りる
+  if (moveId === 'yogaFire') {
+    return {
+      height: 162,
+      width: null,
+      anchor: 'ground',
+      anchorX: 0.174,
+      offsetY: 1
+    };
+  }
+  // 回転画像は脚と軌跡が広いので180px高だと体格が大きく見える（実寸比較で155pxに決めた）。
+  // 頭が画像の下端＝最下点なので bottom-center アンカーのままで位置が合う
+  return {
+    height: 155,
+    width: null,
+    anchor: 'fighter',
+    anchorX: 0.5,
+    offsetY: 0
+  };
+};
 
 // ----------------------------------------------------------------
 // 溜めゲージ

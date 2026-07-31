@@ -37,6 +37,6 @@ export const SPINNING_BIRD_KICK: SpecialMove = {
     hold: 'special'
   },
   cooldown: 90,
-  // 4枚×3F = 毎秒5回転
-  animation: { frameCount: 4, interval: 3 }
+  // 4枚×3F = 毎秒5回転。着地まで回し続けるので loop
+  animation: { frameCount: 4, interval: 3, sequence: null, loop: true }
 };

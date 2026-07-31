@@ -40,6 +40,10 @@ import dhalsimIconUrl from '@/assets/animal-fighter/dhalsim/icon.png';
 import dhalsimJumpUrl from '@/assets/animal-fighter/dhalsim/jump.png';
 import dhalsimKickUrl from '@/assets/animal-fighter/dhalsim/kick.png';
 import dhalsimPunchUrl from '@/assets/animal-fighter/dhalsim/punch.png';
+import dhalsimYoga1Url from '@/assets/animal-fighter/dhalsim/yoga-fire/yoga-fire-1.png';
+import dhalsimYoga2Url from '@/assets/animal-fighter/dhalsim/yoga-fire/yoga-fire-2.png';
+import dhalsimYoga3Url from '@/assets/animal-fighter/dhalsim/yoga-fire/yoga-fire-3.png';
+import dhalsimYoga4Url from '@/assets/animal-fighter/dhalsim/yoga-fire/yoga-fire-4.png';
 import guileCrouchUrl from '@/assets/animal-fighter/guile/crouch.png';
 import guileDownUrl from '@/assets/animal-fighter/guile/down.png';
 import guileFightUrl from '@/assets/animal-fighter/guile/fight.png';
@@ -216,6 +220,14 @@ export const specialSpriteUrls: Partial<
       chunliSbk2Url,
       chunliSbk3Url,
       chunliSbk4Url
+    ]
+  },
+  dhalsim: {
+    yogaFire: [
+      dhalsimYoga1Url,
+      dhalsimYoga2Url,
+      dhalsimYoga3Url,
+      dhalsimYoga4Url
     ]
   }
 };
