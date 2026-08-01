@@ -33,6 +33,8 @@ export type MoveSpec = {
   damage: number;
   // ガードされたときのダメージ。本家スト2と同じく通常技は 0
   chipDamage: number;
+  // ヒット時に相手を押し戻す距離(px)。ガードは 2/3。飛び道具ほど大きい
+  knockback: number;
   hitbox: HitboxShape;
   // maxHits=1 が単発技、0 は打撃判定を持たない技（弾だけで当てる）
   maxHits: number;
@@ -41,7 +43,14 @@ export type MoveSpec = {
 };
 
 export type CommandButton = 'punch' | 'kick' | 'special';
-export type CommandDirection = 'up' | 'down' | 'left' | 'right';
+// forward/back は向き相対。左右を絶対で持つと 2P 側を向いた瞬間にコマンドが裏返る
+export type CommandDirection =
+  | 'up'
+  | 'down'
+  | 'left'
+  | 'right'
+  | 'forward'
+  | 'back';
 
 // 順次入力（↓↓+C など）を足すときはメンバーと commands.ts の分岐を1つ増やす
 export type CommandSpec =
@@ -54,8 +63,15 @@ export type CommandSpec =
       hold: CommandButton;
     };
 
-// interval フレームごとに frameCount 枚を循環させる
-export type AnimationSpec = { frameCount: number; interval: number };
+// interval フレームごとに sequence の順で画像を切り替える。
+// sequence が null なら 0..frameCount-1 の並び。loop=false は最終コマで停止する。
+// frameCount は画像の枚数なので、sequence の最大値はこれ未満でなければならない
+export type AnimationSpec = {
+  frameCount: number;
+  interval: number;
+  sequence: readonly number[] | null;
+  loop: boolean;
+};
 
 export type SpecialMove = MoveSpec & {
   command: CommandSpec;

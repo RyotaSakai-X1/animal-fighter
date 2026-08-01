@@ -1,7 +1,7 @@
 import type { CharacterSpec } from '../../moves/types';
-import { DEFAULT_CPU_TABLE } from '../shared/cpu';
 import { makeNormal } from '../shared/normals';
-import { DEFAULT_PROJECTILE } from '../shared/specials/projectile';
+import { DHALSIM_CPU_TABLE } from './cpu';
+import { YOGA_FIRE } from './specials/yogaFire';
 
 export const dhalsim: CharacterSpec = {
   id: 'dhalsim',
@@ -23,6 +23,6 @@ export const dhalsim: CharacterSpec = {
     damage: 10,
     reach: 95
   }),
-  specials: [DEFAULT_PROJECTILE],
-  cpu: DEFAULT_CPU_TABLE
+  specials: [YOGA_FIRE],
+  cpu: DHALSIM_CPU_TABLE
 };

@@ -12,6 +12,7 @@ import {
   getSpecialMove
 } from './characters';
 import type { CharacterId } from './characters/ids';
+import { getAnimationStep } from './moves/animation';
 import {
   getChargeDirections,
   matchSpecialCommand,
@@ -49,6 +50,11 @@ export const ROUND_TIME_FRAMES = ROUND_TIME_SECONDS * FRAME_RATE;
 export const INTRO_FRAMES = 60;
 export const KO_FRAMES = 90;
 export const HITSTOP_FRAMES = 4;
+// のけぞり中のずり下がり。技ごとの MoveSpec.knockback とは別に、全ヒット共通で乗る
+export const HITSTUN_SLIDE_FRAMES = 3;
+export const HITSTUN_SLIDE_PER_FRAME = 6;
+export const HITSTUN_SLIDE =
+  HITSTUN_SLIDE_FRAMES * HITSTUN_SLIDE_PER_FRAME;
 export const BACKGROUND_COUNT = 5;
 export const GROUND_SPEED = 3;
 // 空中横速度。滞空 ~43F × 2.5 ≒ 横107px 動けるので体幅 54px を余裕を持って飛び越えられる
@@ -113,9 +119,10 @@ export type Projectile = {
   vx: number;
   frame: number;
   onScreen: boolean;
-  // 弾は技より長生きするので、発生時のダメージと削りを持たせる
+  // 弾は技より長生きするので、発生時のダメージ・削り・押し戻しを持たせる
   damage: number;
   chipDamage: number;
+  knockback: number;
 };
 
 export type HitSpark = { x: number; y: number; frame: number };
@@ -156,7 +163,12 @@ export type GameKey =
   | 'KeyX'
   | 'KeyC'
   | 'Enter'
-  | 'Escape';
+  | 'Escape'
+  | 'Space';
+
+// 対戦中のポーズメニュー。ラベルと項目数がずれないよう1か所で持つ
+export const PAUSE_MENU_ITEMS: readonly string[] = ['再開', 'タイトルへ'];
+const PAUSE_MENU_RETURN_TO_TITLE = 1;
 
 export type GameInput = InputState & {
   justPressed: ReadonlySet<GameKey>;
@@ -175,6 +187,9 @@ export type GameState = {
   phaseFrames: number;
   timeFrames: number;
   roundEnd: RoundEnd | null;
+  // 対戦中の一時停止。rAF は止めず updateFight を呼ばないことで進行だけ凍らせる
+  paused: boolean;
+  pauseIndex: number;
   backgroundIndex: number;
   hitStopFrames: number;
   projectiles: Projectile[];
@@ -230,6 +245,8 @@ export const createInitialGameState = (): GameState => ({
   phaseFrames: INTRO_FRAMES,
   timeFrames: ROUND_TIME_FRAMES,
   roundEnd: null,
+  paused: false,
+  pauseIndex: 0,
   backgroundIndex: 0,
   hitStopFrames: 0,
   projectiles: [],
@@ -321,7 +338,10 @@ const startRound = (state: GameState): GameState => {
     roundPhase: 'intro',
     phaseFrames: INTRO_FRAMES,
     timeFrames: ROUND_TIME_FRAMES,
-    roundEnd: null
+    roundEnd: null,
+    // ラウンドや試合をまたいでポーズが残らないようにする
+    paused: false,
+    pauseIndex: 0
   };
 };
 
@@ -374,6 +394,8 @@ const resetToTitle = (state: GameState): GameState => ({
   player: null,
   cpu: null,
   roundEnd: null,
+  paused: false,
+  pauseIndex: 0,
   projectiles: [],
   hitSparks: [],
   guardEffects: []
@@ -516,6 +538,22 @@ const moveIsActive = (fighter: Fighter, spec: MoveSpec): boolean => {
   return attackIsActive(attack, spec);
 };
 
+// 伸縮する炎は絵と判定を一致させたいので、アニメのコマごとにリーチが変わる。
+// 炎が描かれていないコマは 0 で、そのフレームは判定なし
+const getMoveReach = (fighter: Fighter, spec: MoveSpec): number => {
+  const behavior = spec.behavior;
+  if (behavior === null || behavior.kind !== 'extendingFlame') {
+    return spec.hitbox.reach;
+  }
+  const attack = fighter.attack;
+  const special = getSpecialMove(fighter.id, spec.id);
+  if (attack === null || special === undefined || special.animation === null) {
+    return spec.hitbox.reach;
+  }
+  const step = getAnimationStep(special.animation, attack.frame);
+  return behavior.reachByStep[step] ?? 0;
+};
+
 // 打撃の攻撃判定矩形。体の矩形を hitbox の設定ぶん広げる。
 // maxHits=0 の技は打撃判定を持たない（弾だけで当てる）ので null
 const getAttackBox = (fighter: Fighter, spec: MoveSpec): Hitbox | null => {
@@ -523,21 +561,26 @@ const getAttackBox = (fighter: Fighter, spec: MoveSpec): Hitbox | null => {
     return null;
   }
   const shape = spec.hitbox;
+  const reach = getMoveReach(fighter, spec);
+  // リーチ0を体の矩形のまま返すと、密着しているだけで当たってしまう
+  if (reach <= 0) {
+    return null;
+  }
   const body = getHitbox(fighter);
   const top = body.top + shape.topOffset;
   const bottom = body.bottom - shape.bottomInset;
   if (shape.spread === 'both') {
     return {
-      left: body.left - shape.reach,
-      right: body.right + shape.reach,
+      left: body.left - reach,
+      right: body.right + reach,
       top,
       bottom
     };
   }
   if (fighter.facing === 1) {
-    return { left: body.left, right: body.right + shape.reach, top, bottom };
+    return { left: body.left, right: body.right + reach, top, bottom };
   }
-  return { left: body.left - shape.reach, right: body.right, top, bottom };
+  return { left: body.left - reach, right: body.right, top, bottom };
 };
 
 const addHitSpark = (state: GameState, x: number, y: number): void => {
@@ -575,6 +618,7 @@ type HitOptions = {
   target: Fighter;
   damage: number;
   chipDamage: number;
+  knockback: number;
   contactX: number;
   contactY: number;
   projectileHit: boolean;
@@ -588,6 +632,7 @@ const applyHit = (state: GameState, options: HitOptions): void => {
     target,
     damage,
     chipDamage,
+    knockback,
     contactX,
     contactY,
     projectileHit
@@ -601,10 +646,9 @@ const applyHit = (state: GameState, options: HitOptions): void => {
       : Math.ceil(baseDamage * getDefenseRate(target.hp));
   target.hp = Math.max(0, target.hp - finalDamage);
   const away = directionToOpponent(target, attacker) * -1;
-  target.x = Math.max(
-    MIN_X,
-    Math.min(MAX_X, target.x + away * (guarding ? 4 : 6))
-  );
+  // ガードは 2/3（通常技なら 6→4 で Ver.6 と同じ）
+  const distance = guarding ? Math.round((knockback * 2) / 3) : knockback;
+  target.x = Math.max(MIN_X, Math.min(MAX_X, target.x + away * distance));
 
   if (guarding) {
     addGuardEffect(state, contactX, contactY);
@@ -645,7 +689,8 @@ const spawnProjectile = (
     frame: 0,
     onScreen: true,
     damage: spec.damage,
-    chipDamage: spec.chipDamage
+    chipDamage: spec.chipDamage,
+    knockback: spec.knockback
   });
   state.events.push('projectile');
 };
@@ -715,6 +760,7 @@ const resolveAttacks = (
         target,
         damage: settings.damage,
         chipDamage: settings.chipDamage,
+        knockback: settings.knockback,
         contactX,
         contactY,
         projectileHit: false
@@ -955,8 +1001,11 @@ const updateFighter = (
 
   if (fighter.hitstun > 0) {
     const away = directionToOpponent(fighter, opponent) * -1;
-    if (fighter.hitstunElapsed < 3) {
-      fighter.x = Math.max(MIN_X, Math.min(MAX_X, fighter.x + away * 6));
+    if (fighter.hitstunElapsed < HITSTUN_SLIDE_FRAMES) {
+      fighter.x = Math.max(
+        MIN_X,
+        Math.min(MAX_X, fighter.x + away * HITSTUN_SLIDE_PER_FRAME)
+      );
       fighter.hitstunElapsed += 1;
     }
     fighter.hitstun -= 1;
@@ -1044,6 +1093,7 @@ const updateProjectiles = (state: GameState): void => {
         target,
         damage: projectile.damage,
         chipDamage: projectile.chipDamage,
+        knockback: projectile.knockback,
         contactX: projectile.x,
         contactY: projectile.y,
         projectileHit: true
@@ -1219,6 +1269,43 @@ const updateFight = (
 };
 
 // ----------------------------------------------------------------
+// ポーズ
+// ----------------------------------------------------------------
+
+// Space でトグルし、ポーズ中は updateFight を呼ばない。
+// intro/hitstop/roundEnd と同じく rAF は回したままにする（止めるとオーバーレイも固まり、
+// justPressed が溜まって解除の瞬間に暴発する）
+const updatePause = (state: GameState, input: GameInput): GameState => {
+  if (!state.paused) {
+    // KO 演出中は受け付けない（リザルトへの遷移が止まってしまう）
+    if (state.roundEnd === null && input.justPressed.has('Space')) {
+      state.paused = true;
+      state.pauseIndex = 0;
+    }
+    return state;
+  }
+
+  if (input.justPressed.has('Space')) {
+    state.paused = false;
+    return state;
+  }
+  const length = PAUSE_MENU_ITEMS.length;
+  if (input.justPressed.has('ArrowUp')) {
+    state.pauseIndex = (state.pauseIndex + length - 1) % length;
+  }
+  if (input.justPressed.has('ArrowDown')) {
+    state.pauseIndex = (state.pauseIndex + 1) % length;
+  }
+  if (input.justPressed.has('Enter')) {
+    if (state.pauseIndex === PAUSE_MENU_RETURN_TO_TITLE) {
+      return resetToTitle(state);
+    }
+    state.paused = false;
+  }
+  return state;
+};
+
+// ----------------------------------------------------------------
 // エントリポイント（画面ごとの入力処理と遷移）
 // title → select → cpu-select → stage-select → fight → result。Escape で逆順に戻る
 // ----------------------------------------------------------------
@@ -1325,7 +1412,10 @@ export const advanceGame = (
       next = beginMatch(next);
     }
   } else if (next.screen === 'fight') {
-    next = updateFight(next, input, random);
+    next = updatePause(next, input);
+    if (next.screen === 'fight' && !next.paused) {
+      next = updateFight(next, input, random);
+    }
   } else if (next.screen === 'result' && input.justPressed.has('Enter')) {
     next = resetToTitle(next);
   }

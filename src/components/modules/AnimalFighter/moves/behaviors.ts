@@ -16,4 +16,10 @@ export type MoveBehavior =
       riseVelocity: number;
       drift: number;
       landingRecovery: number;
+    }
+  | {
+      kind: 'extendingFlame';
+      // アニメのコマ順に対応する到達距離(px)。弾は飛ばさず、伸びている炎自体が判定になる。
+      // 炎が描かれていないコマは 0 にして、絵と判定を一致させる
+      reachByStep: readonly number[];
     };

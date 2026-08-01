@@ -51,6 +51,36 @@ describe('move list', () => {
     expect(special?.damage).toBe('12');
   });
 
+  test('labels the yoga fire trigger as a relative direction', () => {
+    const special = getMoveList('dhalsim').find(
+      (move) => move.id === 'yogaFire'
+    );
+
+    expect(special?.name).toBe('ヨガファイヤー');
+    // 向き相対の入力は矢印にしない。'→' だと「右キーを押す」と読めてしまう
+    expect(special?.command).toEqual([
+      { kind: 'key', label: '↓', note: '溜め' },
+      { kind: 'plus' },
+      { kind: 'key', label: 'C', note: null },
+      { kind: 'plus' },
+      { kind: 'key', label: '前', note: null }
+    ]);
+    expect(special?.commandText).toBe('↓溜め+C+前');
+    // 固有必殺技を持つキャラは汎用の飛び道具を置き換える
+    expect(getMoveList('dhalsim').some((move) => move.id === 'projectile')).toBe(
+      false
+    );
+  });
+
+  test('never renders a bare arrow for a facing-relative command', () => {
+    const markup = renderToStaticMarkup(
+      createElement(MoveListPanel, { id: 'dhalsim', side: 'cpu' })
+    );
+
+    expect(markup).toContain('>前</kbd>');
+    expect(markup).not.toContain('→');
+  });
+
   test('reflects per-character damage differences', () => {
     const damageOf = (id: 'zangief' | 'dhalsim', moveId: string): string =>
       getMoveList(id).find((move) => move.id === moveId)?.damage ?? '';

@@ -21,6 +21,7 @@ import {
   getSpecialSpriteSpec,
   GROUND_Y,
   isGuarding,
+  PAUSE_MENU_ITEMS,
   SELECT_COLUMNS,
   SELECT_SLOT_COUNT,
   setAssetStatus,
@@ -66,7 +67,9 @@ const GAME_KEYS: readonly GameKey[] = [
   'KeyX',
   'KeyC',
   'Enter',
-  'Escape'
+  'Escape',
+  // 白リストに載せると preventDefault が効くのでページスクロールも止まる
+  'Space'
 ];
 
 const SOUND_SETTINGS: Record<
@@ -122,6 +125,8 @@ type DrawImageOptions = {
   width: number | null;
   anchorY: number;
   flip: boolean;
+  // x に来る列を画像幅の比率で指定する。省略時は中央（従来どおり）
+  anchorX?: number;
 };
 
 const getLoadedImage = (
@@ -174,7 +179,8 @@ const drawImageAnchored = (
   if (options.flip) {
     ctx.scale(-1, 1);
   }
-  ctx.drawImage(image, -width / 2, -height, width, height);
+  // scale(-1,1) の内側なのでアンカーは向きに追従する（左向きでも同じ列が x に来る）
+  ctx.drawImage(image, -width * (options.anchorX ?? 0.5), -height, width, height);
   ctx.restore();
 };
 
@@ -414,6 +420,7 @@ const drawFighter = (
     drawImageAnchored(ctx, images, specialUrl, fighter.x, {
       height: spec.height,
       width: spec.width,
+      anchorX: spec.anchorX,
       anchorY: anchor + spec.offsetY,
       flip: fighter.facing < 0
     });
@@ -550,6 +557,39 @@ const drawRoundOverlay = (
   }
 };
 
+const drawPauseOverlay = (
+  ctx: CanvasRenderingContext2D,
+  state: GameState
+): void => {
+  if (!state.paused) {
+    return;
+  }
+  ctx.save();
+  ctx.fillStyle = '#0b1220cc';
+  ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+  ctx.restore();
+
+  drawText(ctx, 'PAUSE', CANVAS_WIDTH / 2, 150, 48);
+  PAUSE_MENU_ITEMS.forEach((label, index) => {
+    const selected = index === state.pauseIndex;
+    drawText(
+      ctx,
+      selected ? `▶ ${label}` : label,
+      CANVAS_WIDTH / 2,
+      222 + index * 44,
+      26,
+      selected ? COLORS.health : COLORS.white
+    );
+  });
+  drawText(
+    ctx,
+    '↑↓ 選択   Enter 決定   Space 再開',
+    CANVAS_WIDTH / 2,
+    340,
+    16
+  );
+};
+
 const drawFight = (
   ctx: CanvasRenderingContext2D,
   images: ReadonlyMap<string, HTMLImageElement>,
@@ -568,6 +608,8 @@ const drawFight = (
     drawEffects(ctx, state);
   }
   drawRoundOverlay(ctx, state);
+  // HUD より後＝最前面に出す
+  drawPauseOverlay(ctx, state);
 };
 
 const drawTitle = (

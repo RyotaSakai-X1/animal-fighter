@@ -16,7 +16,9 @@ import {
   getHitbox,
   getPoseImagePath,
   getSpecialSpriteFrame,
+  GROUND_SPEED,
   GROUND_Y,
+  HITSTUN_SLIDE,
   isGuarding,
   rectanglesOverlap,
   SELECT_SLOT_COUNT,
@@ -30,7 +32,8 @@ import {
 } from './logic';
 import {
   CHARGE_GRACE_FRAMES,
-  CHARGE_REQUIRED_FRAMES
+  CHARGE_REQUIRED_FRAMES,
+  matchSpecialCommand
 } from './moves/commands';
 
 const ryuDefinition = CHARACTER_DEFINITIONS[0];
@@ -1143,5 +1146,301 @@ describe('Animal Fighter special moves', () => {
     });
     expect(getChargeMeter(ryuCharging)).toBeNull();
     expect(getChargeMeter(cpuChunli)).toBeNull();
+  });
+});
+
+describe('Animal Fighter yoga fire', () => {
+  const dhalsimDefinition = CHARACTER_DEFINITIONS[6];
+  if (dhalsimDefinition === undefined || dhalsimDefinition.id !== 'dhalsim') {
+    throw new Error('Dhalsim must be the seventh character in selection order.');
+  }
+  const dhalsimSpecials = getCharacterSpec('dhalsim').specials;
+
+  const startDhalsimFight = (playerX = 200, cpuX = 600): GameState =>
+    startActiveFight({ ...dhalsimDefinition, x: playerX }, { x: cpuX });
+
+  const holdDown = (state: GameState, frames: number): GameState => {
+    let next = state;
+    for (let index = 0; index < frames; index += 1) {
+      next = advanceGame(next, { ...createInput(), down: true });
+    }
+    return next;
+  };
+
+  // C を押しっぱなしのまま前方向を押す＝ヨガファイヤーの発動入力
+  const pressForward = (state: GameState): GameState =>
+    advanceGame(state, {
+      ...createInput(['ArrowRight']),
+      down: true,
+      projectile: true
+    });
+
+  const runUntilAttackEnds = (state: GameState, limit = 200): GameState => {
+    let next = state;
+    let frames = 0;
+    while (next.player?.attack != null && frames < limit) {
+      next = advanceGame(next, createInput());
+      frames += 1;
+    }
+    return next;
+  };
+
+  const spriteFrameAt = (frame: number): number | undefined =>
+    getSpecialSpriteFrame(
+      createFighter({
+        ...dhalsimDefinition,
+        attack: createAttack('yogaFire', { frame })
+      })
+    )?.index;
+
+  test('fires after a full down charge and replaces the shared projectile', () => {
+    const charged = holdDown(startDhalsimFight(), CHARGE_REQUIRED_FRAMES);
+    const fired = pressForward(charged);
+
+    expect(fired.player?.attack?.moveId).toBe('yogaFire');
+    expect(dhalsimSpecials.map((special) => special.id)).toEqual(['yogaFire']);
+  });
+
+  test('resolves the forward trigger against the facing direction', () => {
+    const charge = {
+      chargeDirection: 'down' as const,
+      chargeFrames: CHARGE_REQUIRED_FRAMES
+    };
+    const facingRight = createFighter({ ...dhalsimDefinition, ...charge });
+    const facingLeft = createFighter({
+      ...dhalsimDefinition,
+      ...charge,
+      facing: -1
+    });
+    const withRight = { ...createInput(['ArrowRight']), projectile: true };
+    const withLeft = { ...createInput(['ArrowLeft']), projectile: true };
+
+    // 2P 側を向いたときに左右が裏返らないこと（絶対方向で持つと壊れる）
+    expect(matchSpecialCommand(facingRight, dhalsimSpecials, withRight)?.id).toBe(
+      'yogaFire'
+    );
+    expect(matchSpecialCommand(facingRight, dhalsimSpecials, withLeft)).toBeNull();
+    expect(matchSpecialCommand(facingLeft, dhalsimSpecials, withLeft)?.id).toBe(
+      'yogaFire'
+    );
+    expect(matchSpecialCommand(facingLeft, dhalsimSpecials, withRight)).toBeNull();
+  });
+
+  test('plays the four images out and back as one flow', () => {
+    // 8コマ×6F。1→1→2→3→4→3→2→1 の順で、48F 以降は最終コマのまま止まる
+    const frames = [0, 6, 12, 18, 24, 30, 36, 42, 48, 59];
+    expect(frames.map(spriteFrameAt)).toEqual([0, 0, 1, 2, 3, 2, 1, 0, 0, 0]);
+  });
+
+  test('animates on the ground, unlike the airborne spin', () => {
+    // 春麗の grounded ガードに引っかかると1コマも出ない
+    expect(spriteFrameAt(24)).toBe(3);
+  });
+
+  test('reaches far past the longest normal without spawning a projectile', () => {
+    // ダルシムのキックは 95px。弾を飛ばさずに 340px 先へ届く
+    const fired = pressForward(
+      holdDown(startDhalsimFight(200, 540), CHARGE_REQUIRED_FRAMES)
+    );
+    const finished = runUntilAttackEnds(fired);
+
+    expect(finished.cpu?.hp).toBeLessThan(100);
+    expect(finished.projectiles).toHaveLength(0);
+  });
+
+  test('whiffs beyond the flame tip', () => {
+    const fired = pressForward(
+      holdDown(startDhalsimFight(100, 760), CHARGE_REQUIRED_FRAMES)
+    );
+    const finished = runUntilAttackEnds(fired);
+
+    expect(finished.cpu?.hp).toBe(100);
+  });
+
+  test('has no hitbox while the flame is still winding up', () => {
+    let state = pressForward(
+      holdDown(startDhalsimFight(300, 366), CHARGE_REQUIRED_FRAMES)
+    );
+    // 密着でも発生前（コマ0〜1＝reach 0）は当たらない
+    for (let index = 0; index < 11; index += 1) {
+      state = advanceGame(state, createInput());
+      expect(state.cpu?.hp, `frame ${String(index)}`).toBe(100);
+    }
+  });
+
+  test('knocks the target back much further than a normal', () => {
+    const fired = pressForward(
+      holdDown(startDhalsimFight(300, 420), CHARGE_REQUIRED_FRAMES)
+    );
+    const before = getFighters(fired).cpu.x;
+    const finished = runUntilAttackEnds(fired);
+
+    // 押し出し110px + ヒットスタン中の3Fスライド18px = 128px（通常技は 6+18=24px）
+    expect(getFighters(finished).cpu.x - before).toBe(128);
+  });
+
+  test('chips a guarding target', () => {
+    // CPU ダルシムに撃たせ、プレイヤーは逆方向（左）を押しっぱなしでガードする
+    const fight = startActiveFight(
+      { x: 500 },
+      { ...dhalsimDefinition, x: 600, aiAction: 'special' }
+    );
+    let state = fight;
+    for (let index = 0; index < 120; index += 1) {
+      state = advanceGame(state, { ...createInput(), left: true });
+      if ((state.player?.hp ?? 100) < 100) {
+        break;
+      }
+    }
+
+    expect(state.player?.hp).toBe(98);
+  });
+
+  test('still shows the full flame after a point blank hit', () => {
+    // 密着だと最小の炎（コマ2）で当たるが、そこで技を打ち切ってはいけない。
+    // 当たった時点で引っ込めると、大きい炎が一度も出ないまま終わって技に見えなくなる
+    let state = pressForward(
+      holdDown(startDhalsimFight(300, 366), CHARGE_REQUIRED_FRAMES)
+    );
+    const seen = new Set<number>();
+    while (state.player?.attack != null) {
+      const frame = getSpecialSpriteFrame(state.player);
+      if (frame !== null) {
+        seen.add(frame.index);
+      }
+      state = advanceGame(state, createInput());
+    }
+
+    expect(state.cpu?.hp).toBeLessThan(100);
+    // 伸びきった4枚目まで表示される
+    expect([...seen].sort()).toEqual([0, 1, 2, 3]);
+  });
+
+  test('leaves the opponent room to close the distance', () => {
+    const yogaFire = dhalsimSpecials[0];
+    if (yogaFire === undefined) {
+      throw new Error('Dhalsim must have a special.');
+    }
+    // クールダウンの間に相手が歩ける距離を吹っ飛ばしが食い潰すと、
+    // 撃ち続けるだけで永久に近寄れない詰み状態になる。
+    // 半分以下に抑えて、1サイクルごとに必ず間合いが縮むようにする
+    const walkPerCycle = yogaFire.cooldown * GROUND_SPEED;
+    expect(yogaFire.knockback + HITSTUN_SLIDE).toBeLessThan(walkPerCycle / 2);
+  });
+
+  test('blasts the target out of walking-back range', () => {
+    const fired = pressForward(
+      holdDown(startDhalsimFight(300, 366), CHARGE_REQUIRED_FRAMES)
+    );
+    const before = getFighters(fired).cpu.x;
+    const finished = runUntilAttackEnds(fired);
+    const gained = getFighters(finished).cpu.x - before;
+
+    // 技の残り時間で歩いて戻れる距離（約18F×3px）より遠くへ飛ばす。
+    // ここが足りないと、当たらなくなった炎の中を素通りして詰められる
+    expect(gained).toBeGreaterThan(60);
+  });
+
+  test('keeps extending flame reach in step with the animation', () => {
+    for (const id of CHARACTER_IDS) {
+      for (const special of getCharacterSpec(id).specials) {
+        const behavior = special.behavior;
+        const animation = special.animation;
+        if (behavior === null || behavior.kind !== 'extendingFlame') {
+          continue;
+        }
+        expect(animation, `${id}/${special.id} needs an animation`).not.toBeNull();
+        if (animation === null) {
+          continue;
+        }
+        const sequence = animation.sequence ?? [];
+        // 長さがずれると絵と判定が静かに食い違う
+        expect(behavior.reachByStep).toHaveLength(sequence.length);
+        // 画像番号が枚数を超えていると通常ポーズへ黙ってフォールバックする
+        expect(Math.max(...sequence)).toBeLessThan(animation.frameCount);
+        expect(specialSpriteUrls[id]?.[special.id]).toHaveLength(
+          animation.frameCount
+        );
+
+        // 判定が出ている区間（startup〜startup+active）と reach 非ゼロの区間が一致すること
+        const activeSteps = behavior.reachByStep
+          .map((reach, step) => ({ reach, step }))
+          .filter((entry) => entry.reach > 0);
+        const first = activeSteps[0]?.step ?? -1;
+        const last = activeSteps[activeSteps.length - 1]?.step ?? -1;
+        expect(first * animation.interval).toBe(special.startup);
+        expect((last + 1) * animation.interval).toBe(
+          special.startup + special.active
+        );
+      }
+    }
+  });
+});
+
+describe('Animal Fighter pause', () => {
+  const pressSpace = (state: GameState): GameState =>
+    advanceGame(state, createInput(['Space']));
+
+  test('freezes the timer and the fighters while paused', () => {
+    const paused = pressSpace(startActiveFight({}, {}));
+    expect(paused.paused).toBe(true);
+
+    const { player } = getFighters(paused);
+    let next = paused;
+    for (let index = 0; index < 10; index += 1) {
+      next = advanceGame(next, { ...createInput(), right: true });
+    }
+
+    expect(next.timeFrames).toBe(paused.timeFrames);
+    expect(next.player?.x).toBe(player.x);
+    expect(next.paused).toBe(true);
+  });
+
+  test('resumes with another Space press', () => {
+    const resumed = pressSpace(pressSpace(startActiveFight({}, {})));
+    expect(resumed.paused).toBe(false);
+
+    const moved = advanceGame(resumed, { ...createInput(), right: true });
+    expect(moved.timeFrames).toBeLessThan(resumed.timeFrames);
+  });
+
+  test('moves the cursor and returns to the title', () => {
+    const paused = pressSpace(startActiveFight({}, {}));
+    expect(paused.pauseIndex).toBe(0);
+
+    const down = advanceGame(paused, createInput(['ArrowDown']));
+    expect(down.pauseIndex).toBe(1);
+    // 端で折り返す
+    expect(advanceGame(down, createInput(['ArrowDown'])).pauseIndex).toBe(0);
+    expect(advanceGame(paused, createInput(['ArrowUp'])).pauseIndex).toBe(1);
+
+    const title = advanceGame(down, createInput(['Enter']));
+    expect(title.screen).toBe('title');
+    expect(title.paused).toBe(false);
+    expect(title.player).toBeNull();
+  });
+
+  test('resumes when Enter picks the first item', () => {
+    const paused = pressSpace(startActiveFight({}, {}));
+    const resumed = advanceGame(paused, createInput(['Enter']));
+
+    expect(resumed.paused).toBe(false);
+    expect(resumed.screen).toBe('fight');
+  });
+
+  test('ignores Space during the KO sequence', () => {
+    const fight = startActiveFight({}, {});
+    const knockedOut = {
+      ...fight,
+      roundEnd: { kind: 'ko' as const, winner: fight.player?.id ?? null, frames: 90 }
+    };
+
+    expect(pressSpace(knockedOut).paused).toBe(false);
+  });
+
+  test('does not pause outside a match', () => {
+    const title = setAssetStatus(createInitialGameState(), true, false);
+    expect(pressSpace(title).paused).toBe(false);
+    expect(pressSpace(title).screen).toBe('title');
   });
 });
