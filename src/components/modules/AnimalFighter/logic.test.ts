@@ -1,4 +1,4 @@
-import { specialSpriteUrls } from './assets';
+import { specialSpriteUrls, spriteUrls } from './assets';
 import { getCharacterSpec } from './characters';
 import {
   advanceGame,
@@ -175,6 +175,13 @@ describe('Animal Fighter image selection', () => {
     expect(
       getPoseImagePath(createFighter({ grounded: false }), baseContext)
     ).toBe('jump');
+    // しゃがみ && ガードは crouch より優先（両立するので専用ポーズが要る）
+    expect(
+      getPoseImagePath(createFighter({ crouching: true }), {
+        ...baseContext,
+        guarding: true
+      })
+    ).toBe('crouchGuard');
     expect(
       getPoseImagePath(createFighter({ crouching: true }), baseContext)
     ).toBe('crouch');
@@ -182,6 +189,27 @@ describe('Animal Fighter image selection', () => {
       getPoseImagePath(createFighter(), { ...baseContext, guarding: true })
     ).toBe('guard');
     expect(getPoseImagePath(createFighter(), baseContext)).toBe('fight');
+  });
+
+  test('keeps the crouch guard grounded and shorter than standing', () => {
+    const standing = getCombatSpriteSpec('guard');
+    const crouchGuard = getCombatSpriteSpec('crouchGuard');
+    const crouch = getCombatSpriteSpec('crouch');
+
+    // 立ちより低く、しゃがみよりは高い（膝立ちは深いしゃがみより上体が起きている）
+    expect(crouchGuard.height).toBeLessThan(standing.height ?? 0);
+    expect(crouchGuard.height).toBeGreaterThan(crouch.height ?? 0);
+    // 地面基準でないと、しゃがんだ瞬間に足が浮く
+    expect(crouchGuard.anchor).toBe('ground');
+  });
+
+  test('gives every character both guard sprites', () => {
+    for (const id of CHARACTER_IDS) {
+      expect(spriteUrls[id].guard, `${id} guard`).toBeTruthy();
+      expect(spriteUrls[id].crouchGuard, `${id} crouchGuard`).toBeTruthy();
+      // 同じ画像を使い回していると立ち/しゃがみの区別が付かない
+      expect(spriteUrls[id].crouchGuard).not.toBe(spriteUrls[id].guard);
+    }
   });
 
   test('keeps KO down exclusive to the defeated fighter', () => {
@@ -916,7 +944,9 @@ describe('Animal Fighter special moves', () => {
 
     expect(getSpecialSpriteFrame(spinning)).toEqual({
       moveId: 'spinningBirdKick',
-      index: 0
+      index: 0,
+      // 画像自体が回転済みなので描画側では回さない
+      rotation: 0
     });
     const indexes = [12, 15, 18, 21, 24].map(
       (frame) =>
@@ -1442,5 +1472,112 @@ describe('Animal Fighter pause', () => {
     const title = setAssetStatus(createInitialGameState(), true, false);
     expect(pressSpace(title).paused).toBe(false);
     expect(pressSpace(title).screen).toBe('title');
+  });
+});
+
+describe('Animal Fighter somersault kick', () => {
+  const guileDefinition = CHARACTER_DEFINITIONS[5];
+  if (guileDefinition === undefined || guileDefinition.id !== 'guile') {
+    throw new Error('Guile must be the sixth character in selection order.');
+  }
+  const guileSpecials = getCharacterSpec('guile').specials;
+
+  const startGuileFight = (playerX = 300, cpuX = 366): GameState =>
+    startActiveFight({ ...guileDefinition, x: playerX }, { x: cpuX });
+
+  const holdDown = (state: GameState, frames: number): GameState => {
+    let next = state;
+    for (let index = 0; index < frames; index += 1) {
+      next = advanceGame(next, { ...createInput(), down: true });
+    }
+    return next;
+  };
+
+  const pressUp = (state: GameState): GameState =>
+    advanceGame(state, {
+      ...createInput(['ArrowUp']),
+      down: true,
+      projectile: true
+    });
+
+  const spriteAt = (frame: number, grounded = false) =>
+    getSpecialSpriteFrame(
+      createFighter({
+        ...guileDefinition,
+        grounded,
+        attack: createAttack('somersaultKick', { frame })
+      })
+    );
+
+  test('replaces the shared projectile and fires from a down charge', () => {
+    expect(guileSpecials.map((special) => special.id)).toEqual([
+      'somersaultKick'
+    ]);
+
+    const fired = pressUp(holdDown(startGuileFight(), CHARGE_REQUIRED_FRAMES));
+    expect(fired.player?.attack?.moveId).toBe('somersaultKick');
+  });
+
+  test('plays the windup and landing frames on the ground too', () => {
+    // 春麗の airborneOnly と違い、地上の溜め（画像1）と着地（画像5）も見せる。
+    // ここが null に落ちると、せっかくの5枚のうち2枚が一度も表示されない
+    expect(spriteAt(0, true)?.index).toBe(0);
+    expect(spriteAt(60, true)?.index).toBe(4);
+  });
+
+  test('rotates the rising frame before cutting to the inverted one', () => {
+    // 8コマ: 画像1 → 2 → 2を回す×2 → 3(逆さ) → 4 → 5 → 5
+    const steps = [0, 6, 12, 18, 24, 30, 36, 42].map((f) => spriteAt(f));
+    expect(steps.map((s) => s?.index)).toEqual([0, 1, 1, 1, 2, 3, 4, 4]);
+    // 同じ画像2を角度違いで見せて宙返りに繋ぐ
+    expect(steps.map((s) => s?.rotation)).toEqual([
+      0, 0, -60, -120, 0, 0, 0, 0
+    ]);
+  });
+
+  test('holds the last frame through the landing recovery', () => {
+    // 着地硬直中は attack.frame が進まないので、最終コマで止まる
+    expect(spriteAt(48)?.index).toBe(4);
+    expect(spriteAt(200)?.index).toBe(4);
+  });
+
+  test('knocks a jumping opponent out of the air', () => {
+    // 跳び込んできた相手を落とせるのが対空技の役目。
+    // 溜め済みのガイルの目前に、頭上を越えようとする相手を置く
+    const charged = holdDown(startGuileFight(300, 380), CHARGE_REQUIRED_FRAMES);
+    const jumping: GameState = {
+      ...charged,
+      cpu:
+        charged.cpu === null
+          ? null
+          : { ...charged.cpu, grounded: false, y: GROUND_Y - 90, vy: -2 }
+    };
+
+    let state = pressUp(jumping);
+    for (let index = 0; index < 40 && (state.cpu?.hp ?? 0) === 100; index += 1) {
+      state = advanceGame(state, createInput());
+    }
+    expect(state.cpu?.hp).toBeLessThan(100);
+  });
+
+  test('keeps rotation and sequence lengths in step for every character', () => {
+    for (const id of CHARACTER_IDS) {
+      for (const special of getCharacterSpec(id).specials) {
+        const animation = special.animation;
+        if (animation === null) continue;
+        const label = `${id}/${special.id}`;
+        if (animation.sequence !== null) {
+          // 画像番号が枚数を超えると通常ポーズへ黙ってフォールバックする
+          expect(Math.max(...animation.sequence), label).toBeLessThan(
+            animation.frameCount
+          );
+        }
+        if (animation.rotationByStep !== null) {
+          // ずれると回転が1コマ手前/奥にかかる
+          const steps = animation.sequence?.length ?? animation.frameCount;
+          expect(animation.rotationByStep, label).toHaveLength(steps);
+        }
+      }
+    }
   });
 });

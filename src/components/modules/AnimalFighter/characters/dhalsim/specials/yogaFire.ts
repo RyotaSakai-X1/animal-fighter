@@ -56,6 +56,8 @@ export const YOGA_FIRE: SpecialMove = {
     frameCount: 4,
     interval: 6,
     sequence: [0, 0, 1, 2, 3, 2, 1, 0],
-    loop: false
+    loop: false,
+    rotationByStep: null,
+    airborneOnly: false
   }
 };

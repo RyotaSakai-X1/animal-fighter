@@ -1,7 +1,7 @@
 import type { CharacterSpec } from '../../moves/types';
-import { DEFAULT_CPU_TABLE } from '../shared/cpu';
 import { makeNormal } from '../shared/normals';
-import { DEFAULT_PROJECTILE } from '../shared/specials/projectile';
+import { GUILE_CPU_TABLE } from './cpu';
+import { SOMERSAULT_KICK } from './specials/somersaultKick';
 
 export const guile: CharacterSpec = {
   id: 'guile',
@@ -23,6 +23,6 @@ export const guile: CharacterSpec = {
     damage: 14,
     reach: 80
   }),
-  specials: [DEFAULT_PROJECTILE],
-  cpu: DEFAULT_CPU_TABLE
+  specials: [SOMERSAULT_KICK],
+  cpu: GUILE_CPU_TABLE
 };

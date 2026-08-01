@@ -71,6 +71,13 @@ export type AnimationSpec = {
   interval: number;
   sequence: readonly number[] | null;
   loop: boolean;
+  // コマごとの回転角（度・時計回り）。同じ画像を角度違いで使い回すための仕組みで、
+  // 焼き込まずデータで持つので角度を変えても画像の再生成が要らない。
+  // null なら回転なし。長さは sequence と揃える
+  rotationByStep: readonly number[] | null;
+  // true なら滞空中だけ描く（発生フレーム起点）。地上の溜めと着地は MoveSpec.pose に任せる。
+  // false は attack.frame の0起点で技の最初から最後まで描く
+  airborneOnly: boolean;
 };
 
 export type SpecialMove = MoveSpec & {

@@ -72,6 +72,21 @@ describe('move list', () => {
     );
   });
 
+  test('shows the somersault kick as a two-hit charge move', () => {
+    const special = getMoveList('guile').find(
+      (move) => move.id === 'somersaultKick'
+    );
+
+    expect(special?.name).toBe('サマーソルトキック');
+    expect(special?.commandText).toBe('↓溜め+C+↑');
+    // 多段技はダメージ×段数
+    expect(special?.damage).toBe('11×2');
+    // 固有必殺技を持つキャラは汎用の飛び道具を置き換える
+    expect(getMoveList('guile').some((move) => move.id === 'projectile')).toBe(
+      false
+    );
+  });
+
   test('never renders a bare arrow for a facing-relative command', () => {
     const markup = renderToStaticMarkup(
       createElement(MoveListPanel, { id: 'dhalsim', side: 'cpu' })
