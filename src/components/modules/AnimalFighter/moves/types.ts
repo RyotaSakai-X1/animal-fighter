@@ -35,6 +35,11 @@ export type MoveSpec = {
   chipDamage: number;
   // ヒット時に相手を押し戻す距離(px)。ガードは 2/3。飛び道具ほど大きい
   knockback: number;
+  // ヒット時に相手を打ち上げる初速。0 なら打ち上げない。
+  // 対空技だけが持つ想定で、当たると相手は着地するまでのけぞり続ける
+  launch: number;
+  // ヒット時に両者を止めるフレーム数。重い技ほど長くして手応えを出す
+  hitStop: number;
   hitbox: HitboxShape;
   // maxHits=1 が単発技、0 は打撃判定を持たない技（弾だけで当てる）
   maxHits: number;

@@ -18,6 +18,8 @@ import {
   getSpecialSpriteFrame,
   GROUND_SPEED,
   GROUND_Y,
+  HIT_FLASH_FRAMES,
+  HITSTOP_FRAMES,
   HITSTUN_SLIDE,
   isGuarding,
   rectanglesOverlap,
@@ -57,6 +59,7 @@ const createFighter = (overrides: Partial<Fighter> = {}): Fighter => ({
   attack: null,
   hitstun: 0,
   hitstunElapsed: 0,
+  hitFlash: 0,
   specialCooldown: 0,
   chargeDirection: null,
   chargeFrames: 0,
@@ -201,6 +204,23 @@ describe('Animal Fighter image selection', () => {
     expect(crouchGuard.height).toBeGreaterThan(crouch.height ?? 0);
     // 地面基準でないと、しゃがんだ瞬間に足が浮く
     expect(crouchGuard.anchor).toBe('ground');
+  });
+
+  test('launches only with the anti-air, and never on a normal', () => {
+    const launching: string[] = [];
+    for (const id of CHARACTER_IDS) {
+      const spec = getCharacterSpec(id);
+      // 通常技が打ち上げると全キャラのバランスが変わる
+      expect(spec.punch.launch, `${id} punch`).toBe(0);
+      expect(spec.kick.launch, `${id} kick`).toBe(0);
+      for (const special of spec.specials) {
+        if (special.launch > 0) launching.push(`${id}/${special.id}`);
+        // 打ち上げるなら滞空させる必要がある（正の値は下向きで意味を成さない）
+        expect(special.launch, `${id}/${special.id}`).toBeGreaterThanOrEqual(0);
+      }
+    }
+    // 対空技はガイルのサマーソルトだけ。増えたら意図した追加か確認する
+    expect(launching).toEqual(['guile/somersaultKick']);
   });
 
   test('gives every character both guard sprites', () => {
@@ -1558,6 +1578,60 @@ describe('Animal Fighter somersault kick', () => {
       state = advanceGame(state, createInput());
     }
     expect(state.cpu?.hp).toBeLessThan(100);
+  });
+
+  test('launches the opponent into the air', () => {
+    const fired = pressUp(holdDown(startGuileFight(), CHARGE_REQUIRED_FRAMES));
+
+    let state = fired;
+    let peak = GROUND_Y;
+    let landedAfterHit = -1;
+    for (let index = 0; index < 140; index += 1) {
+      state = advanceGame(state, createInput());
+      const cpu = getFighters(state).cpu;
+      peak = Math.min(peak, cpu.y);
+      if (cpu.hp < 100 && landedAfterHit < 0 && cpu.grounded) {
+        landedAfterHit = index;
+      }
+    }
+
+    // 通常ジャンプの頂点161pxに近いところまで巻き上げる
+    expect(GROUND_Y - peak).toBeGreaterThan(120);
+    // ちゃんと落ちてくる
+    expect(landedAfterHit).toBeGreaterThan(0);
+    expect(getFighters(state).cpu.grounded).toBe(true);
+  });
+
+  test('keeps the launched opponent helpless until they land', () => {
+    const fired = pressUp(holdDown(startGuileFight(), CHARGE_REQUIRED_FRAMES));
+
+    let state = fired;
+    // 打ち上がるまで進める
+    while ((state.cpu?.grounded ?? true) && (state.cpu?.hp ?? 100) === 100) {
+      state = advanceGame(state, createInput());
+    }
+
+    // 滞空している間はずっとのけぞったまま。途中で操作可能に戻ると
+    // 浮いたまま切り返せてしまい対空技の意味が無くなる
+    let airborneFrames = 0;
+    while (!(state.cpu?.grounded ?? true) && airborneFrames < 140) {
+      expect(state.cpu?.hitstun, `airborne frame ${String(airborneFrames)}`).toBeGreaterThan(0);
+      state = advanceGame(state, createInput());
+      airborneFrames += 1;
+    }
+    expect(airborneFrames).toBeGreaterThan(10);
+  });
+
+  test('flashes the target and holds a longer hitstop than a normal', () => {
+    const fired = pressUp(holdDown(startGuileFight(), CHARGE_REQUIRED_FRAMES));
+
+    let state = fired;
+    while ((state.cpu?.hp ?? 0) === 100) {
+      state = advanceGame(state, createInput());
+    }
+    // 被弾の瞬間に白く光り、必殺技なので通常技より長く止まる
+    expect(state.cpu?.hitFlash).toBe(HIT_FLASH_FRAMES);
+    expect(state.hitStopFrames).toBeGreaterThan(HITSTOP_FRAMES);
   });
 
   test('keeps rotation and sequence lengths in step for every character', () => {

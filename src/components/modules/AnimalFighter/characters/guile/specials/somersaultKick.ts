@@ -19,6 +19,11 @@ export const SOMERSAULT_KICK: SpecialMove = {
   chipDamage: 2,
   // 多段なので1段ずつ大きく押すと相手が飛んでいく。通常技と同じに留める
   knockback: 6,
+  // 対空技なので当てた相手を巻き上げる。2段とも当たると
+  // 1段目で浮いた相手に8F後もう一度かかり、そのぶん高く飛ぶ
+  launch: 11,
+  // 打ち上げの瞬間を見せたいので通常技(4F)より長く止める
+  hitStop: 8,
   // 蹴り上げなので体の上へ大きく張り出す。対空として機能させるための形
   hitbox: { reach: 58, spread: 'forward', topOffset: -50, bottomInset: 20 },
   // 本家も2段（4F と 2F）
