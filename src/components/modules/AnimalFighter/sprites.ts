@@ -96,7 +96,17 @@ const CROUCH_GUARD_HEIGHT = 140;
 // 約208pxを示し、10キャラを描画サイズで並べた目視でも190〜210が妥当だった
 const AIR_DAMAGE_HEIGHT = 200;
 
-export const getCombatSpriteSpec = (pose: CombatPose): CombatSpriteSpec => {
+// のけぞりの深さはキャラごとに違うので、共通値だと体格が合わない子が出る。
+// 丸まりが浅く体が縮こまっている2体だけ下げる（scripts/pose-comparison-sheet.mjs で確認）
+const AIR_DAMAGE_HEIGHT_OVERRIDES: Partial<Record<CharacterId, number>> = {
+  vega: 175,
+  zangief: 185
+};
+
+export const getCombatSpriteSpec = (
+  pose: CombatPose,
+  id?: CharacterId
+): CombatSpriteSpec => {
   if (pose === 'down') {
     return { height: null, width: 220, anchor: 'ground' };
   }
@@ -107,8 +117,11 @@ export const getCombatSpriteSpec = (pose: CombatPose): CombatSpriteSpec => {
     return { height: CROUCH_GUARD_HEIGHT, width: null, anchor: 'ground' };
   }
   if (pose === 'airDamage') {
+    const height =
+      (id === undefined ? undefined : AIR_DAMAGE_HEIGHT_OVERRIDES[id]) ??
+      AIR_DAMAGE_HEIGHT;
     // 空中なので地面基準にはできない
-    return { height: AIR_DAMAGE_HEIGHT, width: null, anchor: 'fighter' };
+    return { height, width: null, anchor: 'fighter' };
   }
   return { height: 180, width: null, anchor: 'fighter' };
 };

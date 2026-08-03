@@ -440,7 +440,7 @@ const drawFighter = (
     return;
   }
 
-  const sprite = getCombatSpriteSpec(pose);
+  const sprite = getCombatSpriteSpec(pose, fighter.id);
   const anchorY = sprite.anchor === 'ground' ? GROUND_Y : fighter.y;
   drawImageAnchored(ctx, images, getSpriteUrl(fighter.id, pose), fighter.x, {
     ...sprite,

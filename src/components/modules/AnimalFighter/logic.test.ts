@@ -260,6 +260,26 @@ describe('Animal Fighter image selection', () => {
     expect(airDamage.anchor).toBe('fighter');
   });
 
+  test('shrinks the air damage pose for the two shallow arches', () => {
+    const base = getCombatSpriteSpec('airDamage').height ?? 0;
+    // のけぞりが浅く体が縮こまっている2体は共通値だと大きく見える
+    expect(getCombatSpriteSpec('airDamage', 'vega').height).toBeLessThan(base);
+    expect(getCombatSpriteSpec('airDamage', 'zangief').height).toBeLessThan(
+      base
+    );
+    // 残り8体は共通値のまま
+    for (const id of CHARACTER_IDS) {
+      if (id === 'vega' || id === 'zangief') continue;
+      expect(getCombatSpriteSpec('airDamage', id).height, id).toBe(base);
+    }
+    // 例外は airDamage だけ。他のポーズはキャラで変えない
+    for (const pose of ['fight', 'crouch', 'guard', 'crouchGuard'] as const) {
+      expect(getCombatSpriteSpec(pose, 'vega')).toEqual(
+        getCombatSpriteSpec(pose)
+      );
+    }
+  });
+
   test('keeps KO down exclusive to the defeated fighter', () => {
     const roundEnd = {
       kind: 'ko' as const,
