@@ -22,7 +22,8 @@ export type CombatPose =
   | 'jump'
   | 'crouch'
   | 'guard'
-  | 'crouchGuard';
+  | 'crouchGuard'
+  | 'airDamage';
 
 export type Pose = 'base' | 'icon' | CombatPose;
 
@@ -40,6 +41,7 @@ export type PoseContext = {
  * because no separate hurt sprite exists in the asset set.
  * 攻撃中のポーズは MoveSpec.pose が決めるので、技を差し替えてもここは触らない。
  * しゃがみとガードは同時に成立するので、crouch より先に crouchGuard を見る（Ver.9）。
+ * 打ち上げられた被弾は airDamage。地上の被弾は専用絵がまだ無いので fight のまま。
  */
 export const getPoseImagePath = (
   fighter: Fighter,
@@ -58,6 +60,8 @@ export const getPoseImagePath = (
     pose = 'down';
   } else if (attackPose !== undefined) {
     pose = attackPose;
+  } else if (fighter.hitstun > 0 && !fighter.grounded) {
+    pose = 'airDamage';
   } else if (fighter.hitstun > 0) {
     pose = 'fight';
   } else if (!fighter.grounded) {
@@ -87,6 +91,11 @@ export type CombatSpriteSpec = {
 // （0.71〜1.12）で、同じ高さに揃えるとキャラが小さく見えるため
 const CROUCH_GUARD_HEIGHT = 140;
 
+// 打ち上げられたやられ絵は立ち絵(180)より高く描く。のけぞって体が伸びるので、
+// 同じ180pxだと体格が縮んで見える。面積比と頭骨幅の2手法がどちらも中央値
+// 約208pxを示し、10キャラを描画サイズで並べた目視でも190〜210が妥当だった
+const AIR_DAMAGE_HEIGHT = 200;
+
 export const getCombatSpriteSpec = (pose: CombatPose): CombatSpriteSpec => {
   if (pose === 'down') {
     return { height: null, width: 220, anchor: 'ground' };
@@ -96,6 +105,10 @@ export const getCombatSpriteSpec = (pose: CombatPose): CombatSpriteSpec => {
   }
   if (pose === 'crouchGuard') {
     return { height: CROUCH_GUARD_HEIGHT, width: null, anchor: 'ground' };
+  }
+  if (pose === 'airDamage') {
+    // 空中なので地面基準にはできない
+    return { height: AIR_DAMAGE_HEIGHT, width: null, anchor: 'fighter' };
   }
   return { height: 180, width: null, anchor: 'fighter' };
 };

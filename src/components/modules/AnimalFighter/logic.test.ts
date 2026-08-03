@@ -178,6 +178,18 @@ describe('Animal Fighter image selection', () => {
     expect(
       getPoseImagePath(createFighter({ grounded: false }), baseContext)
     ).toBe('jump');
+    // 打ち上げられた被弾は専用のやられ絵。jump より先に見ないと
+    // 「自分から跳んだ」ように見えてしまう
+    expect(
+      getPoseImagePath(
+        createFighter({ hitstun: 6, grounded: false }),
+        baseContext
+      )
+    ).toBe('airDamage');
+    // 地上の被弾はまだ専用絵が無いので fight のまま
+    expect(getPoseImagePath(createFighter({ hitstun: 6 }), baseContext)).toBe(
+      'fight'
+    );
     // しゃがみ && ガードは crouch より優先（両立するので専用ポーズが要る）
     expect(
       getPoseImagePath(createFighter({ crouching: true }), {
@@ -230,6 +242,24 @@ describe('Animal Fighter image selection', () => {
       // 同じ画像を使い回していると立ち/しゃがみの区別が付かない
       expect(spriteUrls[id].crouchGuard).not.toBe(spriteUrls[id].guard);
     }
+  });
+
+  test('gives every character an air damage sprite', () => {
+    for (const id of CHARACTER_IDS) {
+      expect(spriteUrls[id].airDamage, `${id} airDamage`).toBeTruthy();
+      // fight を使い回すと打ち上げても棒立ちのままになる
+      expect(spriteUrls[id].airDamage).not.toBe(spriteUrls[id].fight);
+    }
+  });
+
+  test('draws the air damage pose taller than standing', () => {
+    const standing = getCombatSpriteSpec('fight');
+    const airDamage = getCombatSpriteSpec('airDamage');
+
+    // のけぞって体が伸びるので、立ち絵と同じ高さだと体格が縮んで見える
+    expect(airDamage.height).toBeGreaterThan(standing.height ?? 0);
+    // 空中なので地面基準にはできない
+    expect(airDamage.anchor).toBe('fighter');
   });
 
   test('keeps KO down exclusive to the defeated fighter', () => {
@@ -1620,6 +1650,26 @@ describe('Animal Fighter somersault kick', () => {
       airborneFrames += 1;
     }
     expect(airborneFrames).toBeGreaterThan(10);
+  });
+
+  test('shows the launched opponent in the air damage pose', () => {
+    const fired = pressUp(holdDown(startGuileFight(), CHARGE_REQUIRED_FRAMES));
+
+    let state = fired;
+    while ((state.cpu?.grounded ?? true) && (state.cpu?.hp ?? 100) === 100) {
+      state = advanceGame(state, createInput());
+    }
+    const { player, cpu } = getFighters(state);
+
+    // 浮かされている間は専用のやられ絵。ここが jump だと自分から跳んだように見える
+    expect(cpu.grounded).toBe(false);
+    expect(
+      getPoseImagePath(cpu, {
+        opponent: player,
+        roundEnd: null,
+        guarding: false
+      })
+    ).toBe('airDamage');
   });
 
   test('flashes the target and holds a longer hitstop than a normal', () => {

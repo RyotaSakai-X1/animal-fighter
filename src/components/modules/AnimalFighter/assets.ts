@@ -4,6 +4,7 @@ import bgNewYorkUrl from '@/assets/animal-fighter/backgrounds/bg-New-York.png';
 import bgTajMahalUrl from '@/assets/animal-fighter/backgrounds/bg-Taj-Mahal.png';
 import bgKyotoUrl from '@/assets/animal-fighter/backgrounds/bg-kyoto.png';
 import bgStreetUrl from '@/assets/animal-fighter/backgrounds/bg-street-1.png';
+import bisonAirDamageUrl from '@/assets/animal-fighter/bison/air-damage.png';
 import bisonCrouchGuardUrl from '@/assets/animal-fighter/bison/crouch-guard.png';
 import bisonCrouchUrl from '@/assets/animal-fighter/bison/crouch.png';
 import bisonDownUrl from '@/assets/animal-fighter/bison/down.png';
@@ -13,6 +14,7 @@ import bisonIconUrl from '@/assets/animal-fighter/bison/icon.png';
 import bisonJumpUrl from '@/assets/animal-fighter/bison/jump.png';
 import bisonKickUrl from '@/assets/animal-fighter/bison/kick.png';
 import bisonPunchUrl from '@/assets/animal-fighter/bison/punch.png';
+import blankaAirDamageUrl from '@/assets/animal-fighter/blanka/air-damage.png';
 import blankaCrouchGuardUrl from '@/assets/animal-fighter/blanka/crouch-guard.png';
 import blankaCrouchUrl from '@/assets/animal-fighter/blanka/crouch.png';
 import blankaDownUrl from '@/assets/animal-fighter/blanka/down.png';
@@ -22,6 +24,7 @@ import blankaIconUrl from '@/assets/animal-fighter/blanka/icon.png';
 import blankaJumpUrl from '@/assets/animal-fighter/blanka/jump.png';
 import blankaKickUrl from '@/assets/animal-fighter/blanka/kick.png';
 import blankaPunchUrl from '@/assets/animal-fighter/blanka/punch.png';
+import chunliAirDamageUrl from '@/assets/animal-fighter/chunli/air-damage.png';
 import chunliCrouchGuardUrl from '@/assets/animal-fighter/chunli/crouch-guard.png';
 import chunliCrouchUrl from '@/assets/animal-fighter/chunli/crouch.png';
 import chunliDownUrl from '@/assets/animal-fighter/chunli/down.png';
@@ -35,6 +38,7 @@ import chunliSbk1Url from '@/assets/animal-fighter/chunli/spinning-bird-kick/spi
 import chunliSbk2Url from '@/assets/animal-fighter/chunli/spinning-bird-kick/spinning-bird-kick-2.png';
 import chunliSbk3Url from '@/assets/animal-fighter/chunli/spinning-bird-kick/spinning-bird-kick-3.png';
 import chunliSbk4Url from '@/assets/animal-fighter/chunli/spinning-bird-kick/spinning-bird-kick-4.png';
+import dhalsimAirDamageUrl from '@/assets/animal-fighter/dhalsim/air-damage.png';
 import dhalsimCrouchGuardUrl from '@/assets/animal-fighter/dhalsim/crouch-guard.png';
 import dhalsimCrouchUrl from '@/assets/animal-fighter/dhalsim/crouch.png';
 import dhalsimDownUrl from '@/assets/animal-fighter/dhalsim/down.png';
@@ -48,6 +52,7 @@ import dhalsimYoga1Url from '@/assets/animal-fighter/dhalsim/yoga-fire/yoga-fire
 import dhalsimYoga2Url from '@/assets/animal-fighter/dhalsim/yoga-fire/yoga-fire-2.png';
 import dhalsimYoga3Url from '@/assets/animal-fighter/dhalsim/yoga-fire/yoga-fire-3.png';
 import dhalsimYoga4Url from '@/assets/animal-fighter/dhalsim/yoga-fire/yoga-fire-4.png';
+import guileAirDamageUrl from '@/assets/animal-fighter/guile/air-damage.png';
 import guileCrouchGuardUrl from '@/assets/animal-fighter/guile/crouch-guard.png';
 import guileCrouchUrl from '@/assets/animal-fighter/guile/crouch.png';
 import guileDownUrl from '@/assets/animal-fighter/guile/down.png';
@@ -62,6 +67,7 @@ import guileSomersault2Url from '@/assets/animal-fighter/guile/somersault-kick/s
 import guileSomersault3Url from '@/assets/animal-fighter/guile/somersault-kick/somersault-kick-3.png';
 import guileSomersault4Url from '@/assets/animal-fighter/guile/somersault-kick/somersault-kick-4.png';
 import guileSomersault5Url from '@/assets/animal-fighter/guile/somersault-kick/somersault-kick-5.png';
+import hondaAirDamageUrl from '@/assets/animal-fighter/honda/air-damage.png';
 import hondaCrouchGuardUrl from '@/assets/animal-fighter/honda/crouch-guard.png';
 import hondaCrouchUrl from '@/assets/animal-fighter/honda/crouch.png';
 import hondaDownUrl from '@/assets/animal-fighter/honda/down.png';
@@ -72,6 +78,7 @@ import hondaJumpUrl from '@/assets/animal-fighter/honda/jump.png';
 import hondaKickUrl from '@/assets/animal-fighter/honda/kick.png';
 import hondaPunchUrl from '@/assets/animal-fighter/honda/punch.png';
 import kenBaseUrl from '@/assets/animal-fighter/ken/base.png';
+import kenAirDamageUrl from '@/assets/animal-fighter/ken/air-damage.png';
 import kenCrouchGuardUrl from '@/assets/animal-fighter/ken/crouch-guard.png';
 import kenCrouchUrl from '@/assets/animal-fighter/ken/crouch.png';
 import kenDownUrl from '@/assets/animal-fighter/ken/down.png';
@@ -82,6 +89,7 @@ import kenJumpUrl from '@/assets/animal-fighter/ken/jump.png';
 import kenKickUrl from '@/assets/animal-fighter/ken/kick.png';
 import kenPunchUrl from '@/assets/animal-fighter/ken/punch.png';
 import ryuBaseUrl from '@/assets/animal-fighter/ryu/base.png';
+import ryuAirDamageUrl from '@/assets/animal-fighter/ryu/air-damage.png';
 import ryuCrouchGuardUrl from '@/assets/animal-fighter/ryu/crouch-guard.png';
 import ryuCrouchUrl from '@/assets/animal-fighter/ryu/crouch.png';
 import ryuDownUrl from '@/assets/animal-fighter/ryu/down.png';
@@ -92,6 +100,7 @@ import ryuJumpUrl from '@/assets/animal-fighter/ryu/jump.png';
 import ryuKickUrl from '@/assets/animal-fighter/ryu/kick.png';
 import ryuPunchUrl from '@/assets/animal-fighter/ryu/punch.png';
 import titleLogoUrl from '@/assets/animal-fighter/title-logo.png';
+import vegaAirDamageUrl from '@/assets/animal-fighter/vega/air-damage.png';
 import vegaCrouchGuardUrl from '@/assets/animal-fighter/vega/crouch-guard.png';
 import vegaCrouchUrl from '@/assets/animal-fighter/vega/crouch.png';
 import vegaDownUrl from '@/assets/animal-fighter/vega/down.png';
@@ -101,6 +110,7 @@ import vegaIconUrl from '@/assets/animal-fighter/vega/icon.png';
 import vegaJumpUrl from '@/assets/animal-fighter/vega/jump.png';
 import vegaKickUrl from '@/assets/animal-fighter/vega/kick.png';
 import vegaPunchUrl from '@/assets/animal-fighter/vega/punch.png';
+import zangiefAirDamageUrl from '@/assets/animal-fighter/zangief/air-damage.png';
 import zangiefCrouchGuardUrl from '@/assets/animal-fighter/zangief/crouch-guard.png';
 import zangiefCrouchUrl from '@/assets/animal-fighter/zangief/crouch.png';
 import zangiefDownUrl from '@/assets/animal-fighter/zangief/down.png';
@@ -120,6 +130,7 @@ export const spriteUrls: Record<CharacterId, Record<Pose, string>> = {
     kick: ryuKickUrl,
     guard: ryuGuardUrl,
     crouchGuard: ryuCrouchGuardUrl,
+    airDamage: ryuAirDamageUrl,
     jump: ryuJumpUrl,
     crouch: ryuCrouchUrl,
     down: ryuDownUrl
@@ -132,6 +143,7 @@ export const spriteUrls: Record<CharacterId, Record<Pose, string>> = {
     kick: kenKickUrl,
     guard: kenGuardUrl,
     crouchGuard: kenCrouchGuardUrl,
+    airDamage: kenAirDamageUrl,
     jump: kenJumpUrl,
     crouch: kenCrouchUrl,
     down: kenDownUrl
@@ -144,6 +156,7 @@ export const spriteUrls: Record<CharacterId, Record<Pose, string>> = {
     kick: chunliKickUrl,
     guard: chunliGuardUrl,
     crouchGuard: chunliCrouchGuardUrl,
+    airDamage: chunliAirDamageUrl,
     jump: chunliJumpUrl,
     crouch: chunliCrouchUrl,
     down: chunliDownUrl
@@ -156,6 +169,7 @@ export const spriteUrls: Record<CharacterId, Record<Pose, string>> = {
     kick: hondaKickUrl,
     guard: hondaGuardUrl,
     crouchGuard: hondaCrouchGuardUrl,
+    airDamage: hondaAirDamageUrl,
     jump: hondaJumpUrl,
     crouch: hondaCrouchUrl,
     down: hondaDownUrl
@@ -168,6 +182,7 @@ export const spriteUrls: Record<CharacterId, Record<Pose, string>> = {
     kick: zangiefKickUrl,
     guard: zangiefGuardUrl,
     crouchGuard: zangiefCrouchGuardUrl,
+    airDamage: zangiefAirDamageUrl,
     jump: zangiefJumpUrl,
     crouch: zangiefCrouchUrl,
     down: zangiefDownUrl
@@ -180,6 +195,7 @@ export const spriteUrls: Record<CharacterId, Record<Pose, string>> = {
     kick: guileKickUrl,
     guard: guileGuardUrl,
     crouchGuard: guileCrouchGuardUrl,
+    airDamage: guileAirDamageUrl,
     jump: guileJumpUrl,
     crouch: guileCrouchUrl,
     down: guileDownUrl
@@ -192,6 +208,7 @@ export const spriteUrls: Record<CharacterId, Record<Pose, string>> = {
     kick: dhalsimKickUrl,
     guard: dhalsimGuardUrl,
     crouchGuard: dhalsimCrouchGuardUrl,
+    airDamage: dhalsimAirDamageUrl,
     jump: dhalsimJumpUrl,
     crouch: dhalsimCrouchUrl,
     down: dhalsimDownUrl
@@ -204,6 +221,7 @@ export const spriteUrls: Record<CharacterId, Record<Pose, string>> = {
     kick: bisonKickUrl,
     guard: bisonGuardUrl,
     crouchGuard: bisonCrouchGuardUrl,
+    airDamage: bisonAirDamageUrl,
     jump: bisonJumpUrl,
     crouch: bisonCrouchUrl,
     down: bisonDownUrl
@@ -216,6 +234,7 @@ export const spriteUrls: Record<CharacterId, Record<Pose, string>> = {
     kick: blankaKickUrl,
     guard: blankaGuardUrl,
     crouchGuard: blankaCrouchGuardUrl,
+    airDamage: blankaAirDamageUrl,
     jump: blankaJumpUrl,
     crouch: blankaCrouchUrl,
     down: blankaDownUrl
@@ -228,6 +247,7 @@ export const spriteUrls: Record<CharacterId, Record<Pose, string>> = {
     kick: vegaKickUrl,
     guard: vegaGuardUrl,
     crouchGuard: vegaCrouchGuardUrl,
+    airDamage: vegaAirDamageUrl,
     jump: vegaJumpUrl,
     crouch: vegaCrouchUrl,
     down: vegaDownUrl
