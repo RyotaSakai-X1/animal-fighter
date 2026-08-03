@@ -18,6 +18,9 @@ export const SPINNING_BIRD_KICK: SpecialMove = {
   chipDamage: 1,
   // 多段技なので1段ずつ押すと相手が飛んでいく。通常技と同じに留める
   knockback: 6,
+  // 低く前進する技なので打ち上げない（対空はガイルのサマーソルト）
+  launch: 0,
+  hitStop: 6,
   // 上に開いた脚の判定。頭が最下点なので、立ち相手に届くのは高度130px以下の間だけ
   hitbox: { reach: 56, spread: 'both', topOffset: -40, bottomInset: 30 },
   maxHits: 3,
@@ -39,6 +42,14 @@ export const SPINNING_BIRD_KICK: SpecialMove = {
     hold: 'special'
   },
   cooldown: 90,
-  // 4枚×3F = 毎秒5回転。着地まで回し続けるので loop
-  animation: { frameCount: 4, interval: 3, sequence: null, loop: true }
+  // 4枚×3F = 毎秒5回転。着地まで回し続けるので loop。
+  // 画像自体が回転済みなので rotationByStep は不要
+  animation: {
+    frameCount: 4,
+    interval: 3,
+    sequence: null,
+    loop: true,
+    rotationByStep: null,
+    airborneOnly: true
+  }
 };

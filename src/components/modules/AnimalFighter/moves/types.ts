@@ -35,6 +35,11 @@ export type MoveSpec = {
   chipDamage: number;
   // ヒット時に相手を押し戻す距離(px)。ガードは 2/3。飛び道具ほど大きい
   knockback: number;
+  // ヒット時に相手を打ち上げる初速。0 なら打ち上げない。
+  // 対空技だけが持つ想定で、当たると相手は着地するまでのけぞり続ける
+  launch: number;
+  // ヒット時に両者を止めるフレーム数。重い技ほど長くして手応えを出す
+  hitStop: number;
   hitbox: HitboxShape;
   // maxHits=1 が単発技、0 は打撃判定を持たない技（弾だけで当てる）
   maxHits: number;
@@ -71,6 +76,13 @@ export type AnimationSpec = {
   interval: number;
   sequence: readonly number[] | null;
   loop: boolean;
+  // コマごとの回転角（度・時計回り）。同じ画像を角度違いで使い回すための仕組みで、
+  // 焼き込まずデータで持つので角度を変えても画像の再生成が要らない。
+  // null なら回転なし。長さは sequence と揃える
+  rotationByStep: readonly number[] | null;
+  // true なら滞空中だけ描く（発生フレーム起点）。地上の溜めと着地は MoveSpec.pose に任せる。
+  // false は attack.frame の0起点で技の最初から最後まで描く
+  airborneOnly: boolean;
 };
 
 export type SpecialMove = MoveSpec & {

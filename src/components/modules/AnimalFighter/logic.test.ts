@@ -1,4 +1,4 @@
-import { specialSpriteUrls } from './assets';
+import { specialSpriteUrls, spriteUrls } from './assets';
 import { getCharacterSpec } from './characters';
 import {
   advanceGame,
@@ -18,6 +18,7 @@ import {
   getSpecialSpriteFrame,
   GROUND_SPEED,
   GROUND_Y,
+  HITSTOP_FRAMES,
   HITSTUN_SLIDE,
   isGuarding,
   rectanglesOverlap,
@@ -175,6 +176,25 @@ describe('Animal Fighter image selection', () => {
     expect(
       getPoseImagePath(createFighter({ grounded: false }), baseContext)
     ).toBe('jump');
+    // 打ち上げられた被弾は専用のやられ絵。jump より先に見ないと
+    // 「自分から跳んだ」ように見えてしまう
+    expect(
+      getPoseImagePath(
+        createFighter({ hitstun: 6, grounded: false }),
+        baseContext
+      )
+    ).toBe('airDamage');
+    // 地上の被弾はまだ専用絵が無いので fight のまま
+    expect(getPoseImagePath(createFighter({ hitstun: 6 }), baseContext)).toBe(
+      'fight'
+    );
+    // しゃがみ && ガードは crouch より優先（両立するので専用ポーズが要る）
+    expect(
+      getPoseImagePath(createFighter({ crouching: true }), {
+        ...baseContext,
+        guarding: true
+      })
+    ).toBe('crouchGuard');
     expect(
       getPoseImagePath(createFighter({ crouching: true }), baseContext)
     ).toBe('crouch');
@@ -182,6 +202,82 @@ describe('Animal Fighter image selection', () => {
       getPoseImagePath(createFighter(), { ...baseContext, guarding: true })
     ).toBe('guard');
     expect(getPoseImagePath(createFighter(), baseContext)).toBe('fight');
+  });
+
+  test('keeps the crouch guard grounded and shorter than standing', () => {
+    const standing = getCombatSpriteSpec('guard');
+    const crouchGuard = getCombatSpriteSpec('crouchGuard');
+    const crouch = getCombatSpriteSpec('crouch');
+
+    // 立ちより低く、しゃがみよりは高い（膝立ちは深いしゃがみより上体が起きている）
+    expect(crouchGuard.height).toBeLessThan(standing.height ?? 0);
+    expect(crouchGuard.height).toBeGreaterThan(crouch.height ?? 0);
+    // 地面基準でないと、しゃがんだ瞬間に足が浮く
+    expect(crouchGuard.anchor).toBe('ground');
+  });
+
+  test('launches only with the anti-air, and never on a normal', () => {
+    const launching: string[] = [];
+    for (const id of CHARACTER_IDS) {
+      const spec = getCharacterSpec(id);
+      // 通常技が打ち上げると全キャラのバランスが変わる
+      expect(spec.punch.launch, `${id} punch`).toBe(0);
+      expect(spec.kick.launch, `${id} kick`).toBe(0);
+      for (const special of spec.specials) {
+        if (special.launch > 0) launching.push(`${id}/${special.id}`);
+        // 打ち上げるなら滞空させる必要がある（正の値は下向きで意味を成さない）
+        expect(special.launch, `${id}/${special.id}`).toBeGreaterThanOrEqual(0);
+      }
+    }
+    // 対空技はガイルのサマーソルトだけ。増えたら意図した追加か確認する
+    expect(launching).toEqual(['guile/somersaultKick']);
+  });
+
+  test('gives every character both guard sprites', () => {
+    for (const id of CHARACTER_IDS) {
+      expect(spriteUrls[id].guard, `${id} guard`).toBeTruthy();
+      expect(spriteUrls[id].crouchGuard, `${id} crouchGuard`).toBeTruthy();
+      // 同じ画像を使い回していると立ち/しゃがみの区別が付かない
+      expect(spriteUrls[id].crouchGuard).not.toBe(spriteUrls[id].guard);
+    }
+  });
+
+  test('gives every character an air damage sprite', () => {
+    for (const id of CHARACTER_IDS) {
+      expect(spriteUrls[id].airDamage, `${id} airDamage`).toBeTruthy();
+      // fight を使い回すと打ち上げても棒立ちのままになる
+      expect(spriteUrls[id].airDamage).not.toBe(spriteUrls[id].fight);
+    }
+  });
+
+  test('draws the air damage pose taller than standing', () => {
+    const standing = getCombatSpriteSpec('fight');
+    const airDamage = getCombatSpriteSpec('airDamage');
+
+    // のけぞって体が伸びるので、立ち絵と同じ高さだと体格が縮んで見える
+    expect(airDamage.height).toBeGreaterThan(standing.height ?? 0);
+    // 空中なので地面基準にはできない
+    expect(airDamage.anchor).toBe('fighter');
+  });
+
+  test('shrinks the air damage pose for the two shallow arches', () => {
+    const base = getCombatSpriteSpec('airDamage').height ?? 0;
+    // のけぞりが浅く体が縮こまっている2体は共通値だと大きく見える
+    expect(getCombatSpriteSpec('airDamage', 'vega').height).toBeLessThan(base);
+    expect(getCombatSpriteSpec('airDamage', 'zangief').height).toBeLessThan(
+      base
+    );
+    // 残り8体は共通値のまま
+    for (const id of CHARACTER_IDS) {
+      if (id === 'vega' || id === 'zangief') continue;
+      expect(getCombatSpriteSpec('airDamage', id).height, id).toBe(base);
+    }
+    // 例外は airDamage だけ。他のポーズはキャラで変えない
+    for (const pose of ['fight', 'crouch', 'guard', 'crouchGuard'] as const) {
+      expect(getCombatSpriteSpec(pose, 'vega')).toEqual(
+        getCombatSpriteSpec(pose)
+      );
+    }
   });
 
   test('keeps KO down exclusive to the defeated fighter', () => {
@@ -916,7 +1012,9 @@ describe('Animal Fighter special moves', () => {
 
     expect(getSpecialSpriteFrame(spinning)).toEqual({
       moveId: 'spinningBirdKick',
-      index: 0
+      index: 0,
+      // 画像自体が回転済みなので描画側では回さない
+      rotation: 0
     });
     const indexes = [12, 15, 18, 21, 24].map(
       (frame) =>
@@ -1442,5 +1540,185 @@ describe('Animal Fighter pause', () => {
     const title = setAssetStatus(createInitialGameState(), true, false);
     expect(pressSpace(title).paused).toBe(false);
     expect(pressSpace(title).screen).toBe('title');
+  });
+});
+
+describe('Animal Fighter somersault kick', () => {
+  const guileDefinition = CHARACTER_DEFINITIONS[5];
+  if (guileDefinition === undefined || guileDefinition.id !== 'guile') {
+    throw new Error('Guile must be the sixth character in selection order.');
+  }
+  const guileSpecials = getCharacterSpec('guile').specials;
+
+  const startGuileFight = (playerX = 300, cpuX = 366): GameState =>
+    startActiveFight({ ...guileDefinition, x: playerX }, { x: cpuX });
+
+  const holdDown = (state: GameState, frames: number): GameState => {
+    let next = state;
+    for (let index = 0; index < frames; index += 1) {
+      next = advanceGame(next, { ...createInput(), down: true });
+    }
+    return next;
+  };
+
+  const pressUp = (state: GameState): GameState =>
+    advanceGame(state, {
+      ...createInput(['ArrowUp']),
+      down: true,
+      projectile: true
+    });
+
+  const spriteAt = (frame: number, grounded = false) =>
+    getSpecialSpriteFrame(
+      createFighter({
+        ...guileDefinition,
+        grounded,
+        attack: createAttack('somersaultKick', { frame })
+      })
+    );
+
+  test('replaces the shared projectile and fires from a down charge', () => {
+    expect(guileSpecials.map((special) => special.id)).toEqual([
+      'somersaultKick'
+    ]);
+
+    const fired = pressUp(holdDown(startGuileFight(), CHARGE_REQUIRED_FRAMES));
+    expect(fired.player?.attack?.moveId).toBe('somersaultKick');
+  });
+
+  test('plays the windup and landing frames on the ground too', () => {
+    // 春麗の airborneOnly と違い、地上の溜め（画像1）と着地（画像5）も見せる。
+    // ここが null に落ちると、せっかくの5枚のうち2枚が一度も表示されない
+    expect(spriteAt(0, true)?.index).toBe(0);
+    expect(spriteAt(60, true)?.index).toBe(4);
+  });
+
+  test('rotates the rising frame before cutting to the inverted one', () => {
+    // 8コマ: 画像1 → 2 → 2を回す×2 → 3(逆さ) → 4 → 5 → 5
+    const steps = [0, 6, 12, 18, 24, 30, 36, 42].map((f) => spriteAt(f));
+    expect(steps.map((s) => s?.index)).toEqual([0, 1, 1, 1, 2, 3, 4, 4]);
+    // 同じ画像2を角度違いで見せて宙返りに繋ぐ
+    expect(steps.map((s) => s?.rotation)).toEqual([
+      0, 0, -60, -120, 0, 0, 0, 0
+    ]);
+  });
+
+  test('holds the last frame through the landing recovery', () => {
+    // 着地硬直中は attack.frame が進まないので、最終コマで止まる
+    expect(spriteAt(48)?.index).toBe(4);
+    expect(spriteAt(200)?.index).toBe(4);
+  });
+
+  test('knocks a jumping opponent out of the air', () => {
+    // 跳び込んできた相手を落とせるのが対空技の役目。
+    // 溜め済みのガイルの目前に、頭上を越えようとする相手を置く
+    const charged = holdDown(startGuileFight(300, 380), CHARGE_REQUIRED_FRAMES);
+    const jumping: GameState = {
+      ...charged,
+      cpu:
+        charged.cpu === null
+          ? null
+          : { ...charged.cpu, grounded: false, y: GROUND_Y - 90, vy: -2 }
+    };
+
+    let state = pressUp(jumping);
+    for (let index = 0; index < 40 && (state.cpu?.hp ?? 0) === 100; index += 1) {
+      state = advanceGame(state, createInput());
+    }
+    expect(state.cpu?.hp).toBeLessThan(100);
+  });
+
+  test('launches the opponent into the air', () => {
+    const fired = pressUp(holdDown(startGuileFight(), CHARGE_REQUIRED_FRAMES));
+
+    let state = fired;
+    let peak = GROUND_Y;
+    let landedAfterHit = -1;
+    for (let index = 0; index < 140; index += 1) {
+      state = advanceGame(state, createInput());
+      const cpu = getFighters(state).cpu;
+      peak = Math.min(peak, cpu.y);
+      if (cpu.hp < 100 && landedAfterHit < 0 && cpu.grounded) {
+        landedAfterHit = index;
+      }
+    }
+
+    // 通常ジャンプの頂点161pxに近いところまで巻き上げる
+    expect(GROUND_Y - peak).toBeGreaterThan(120);
+    // ちゃんと落ちてくる
+    expect(landedAfterHit).toBeGreaterThan(0);
+    expect(getFighters(state).cpu.grounded).toBe(true);
+  });
+
+  test('keeps the launched opponent helpless until they land', () => {
+    const fired = pressUp(holdDown(startGuileFight(), CHARGE_REQUIRED_FRAMES));
+
+    let state = fired;
+    // 打ち上がるまで進める
+    while ((state.cpu?.grounded ?? true) && (state.cpu?.hp ?? 100) === 100) {
+      state = advanceGame(state, createInput());
+    }
+
+    // 滞空している間はずっとのけぞったまま。途中で操作可能に戻ると
+    // 浮いたまま切り返せてしまい対空技の意味が無くなる
+    let airborneFrames = 0;
+    while (!(state.cpu?.grounded ?? true) && airborneFrames < 140) {
+      expect(state.cpu?.hitstun, `airborne frame ${String(airborneFrames)}`).toBeGreaterThan(0);
+      state = advanceGame(state, createInput());
+      airborneFrames += 1;
+    }
+    expect(airborneFrames).toBeGreaterThan(10);
+  });
+
+  test('shows the launched opponent in the air damage pose', () => {
+    const fired = pressUp(holdDown(startGuileFight(), CHARGE_REQUIRED_FRAMES));
+
+    let state = fired;
+    while ((state.cpu?.grounded ?? true) && (state.cpu?.hp ?? 100) === 100) {
+      state = advanceGame(state, createInput());
+    }
+    const { player, cpu } = getFighters(state);
+
+    // 浮かされている間は専用のやられ絵。ここが jump だと自分から跳んだように見える
+    expect(cpu.grounded).toBe(false);
+    expect(
+      getPoseImagePath(cpu, {
+        opponent: player,
+        roundEnd: null,
+        guarding: false
+      })
+    ).toBe('airDamage');
+  });
+
+  test('holds a longer hitstop than a normal', () => {
+    const fired = pressUp(holdDown(startGuileFight(), CHARGE_REQUIRED_FRAMES));
+
+    let state = fired;
+    while ((state.cpu?.hp ?? 0) === 100) {
+      state = advanceGame(state, createInput());
+    }
+    // 必殺技なので通常技より長く止めて、打ち上げの瞬間を見せる
+    expect(state.hitStopFrames).toBeGreaterThan(HITSTOP_FRAMES);
+  });
+
+  test('keeps rotation and sequence lengths in step for every character', () => {
+    for (const id of CHARACTER_IDS) {
+      for (const special of getCharacterSpec(id).specials) {
+        const animation = special.animation;
+        if (animation === null) continue;
+        const label = `${id}/${special.id}`;
+        if (animation.sequence !== null) {
+          // 画像番号が枚数を超えると通常ポーズへ黙ってフォールバックする
+          expect(Math.max(...animation.sequence), label).toBeLessThan(
+            animation.frameCount
+          );
+        }
+        if (animation.rotationByStep !== null) {
+          // ずれると回転が1コマ手前/奥にかかる
+          const steps = animation.sequence?.length ?? animation.frameCount;
+          expect(animation.rotationByStep, label).toHaveLength(steps);
+        }
+      }
+    }
   });
 });

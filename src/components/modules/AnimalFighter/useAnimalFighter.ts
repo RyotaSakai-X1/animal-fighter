@@ -127,6 +127,9 @@ type DrawImageOptions = {
   flip: boolean;
   // x に来る列を画像幅の比率で指定する。省略時は中央（従来どおり）
   anchorX?: number;
+  // 度数・時計回り。アンカーから pivotY だけ上の点を軸に回す
+  rotation?: number;
+  pivotY?: number;
 };
 
 const getLoadedImage = (
@@ -179,7 +182,15 @@ const drawImageAnchored = (
   if (options.flip) {
     ctx.scale(-1, 1);
   }
-  // scale(-1,1) の内側なのでアンカーは向きに追従する（左向きでも同じ列が x に来る）
+  // scale(-1,1) の内側なのでアンカーも回転も向きに追従する
+  // （左向きでも同じ列が x に来て、宙返りも前方向へ回る）
+  const rotation = options.rotation ?? 0;
+  if (rotation !== 0) {
+    const pivotY = options.pivotY ?? 0;
+    ctx.translate(0, -pivotY);
+    ctx.rotate((rotation * Math.PI) / 180);
+    ctx.translate(0, pivotY);
+  }
   ctx.drawImage(image, -width * (options.anchorX ?? 0.5), -height, width, height);
   ctx.restore();
 };
@@ -422,12 +433,14 @@ const drawFighter = (
       width: spec.width,
       anchorX: spec.anchorX,
       anchorY: anchor + spec.offsetY,
+      rotation: specialFrame.rotation,
+      pivotY: spec.pivotY,
       flip: fighter.facing < 0
     });
     return;
   }
 
-  const sprite = getCombatSpriteSpec(pose);
+  const sprite = getCombatSpriteSpec(pose, fighter.id);
   const anchorY = sprite.anchor === 'ground' ? GROUND_Y : fighter.y;
   drawImageAnchored(ctx, images, getSpriteUrl(fighter.id, pose), fighter.x, {
     ...sprite,
@@ -436,12 +449,20 @@ const drawFighter = (
   });
 
   if (guarding) {
+    // しゃがみは背が低いので弧も下げる。立ち用の94px固定だと頭上に浮く
+    const arcY = fighter.y - (fighter.crouching ? 52 : 94);
+    // 弧は相手側に張るので向きに合わせて開く方向を反転する
+    const facingLeft = fighter.facing < 0;
     ctx.save();
     ctx.strokeStyle = COLORS.white;
     ctx.globalAlpha = 0.55;
     ctx.lineWidth = 3;
     ctx.beginPath();
-    ctx.arc(fighter.x, fighter.y - 94, 38, Math.PI * 0.7, Math.PI * 1.3);
+    if (facingLeft) {
+      ctx.arc(fighter.x, arcY, 38, Math.PI * 0.7, Math.PI * 1.3);
+    } else {
+      ctx.arc(fighter.x, arcY, 38, Math.PI * -0.3, Math.PI * 0.3);
+    }
     ctx.stroke();
     ctx.restore();
   }

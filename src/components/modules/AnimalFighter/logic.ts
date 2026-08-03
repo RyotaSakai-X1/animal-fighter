@@ -123,6 +123,8 @@ export type Projectile = {
   damage: number;
   chipDamage: number;
   knockback: number;
+  launch: number;
+  hitStop: number;
 };
 
 export type HitSpark = { x: number; y: number; frame: number };
@@ -619,6 +621,8 @@ type HitOptions = {
   damage: number;
   chipDamage: number;
   knockback: number;
+  launch: number;
+  hitStop: number;
   contactX: number;
   contactY: number;
   projectileHit: boolean;
@@ -633,6 +637,8 @@ const applyHit = (state: GameState, options: HitOptions): void => {
     damage,
     chipDamage,
     knockback,
+    launch,
+    hitStop,
     contactX,
     contactY,
     projectileHit
@@ -658,6 +664,12 @@ const applyHit = (state: GameState, options: HitOptions): void => {
     target.hitstunElapsed = 0;
     target.attack = null;
     target.blocking = false;
+    // 対空技は相手を巻き上げる。既に浮いている相手にもう一度当たると
+    // 速度が入れ直されるので、多段技は当てるほど高く上がる
+    if (launch > 0) {
+      target.vy = -launch;
+      target.grounded = false;
+    }
     addHitSpark(state, contactX, contactY);
     state.events.push('hit');
   }
@@ -667,7 +679,7 @@ const applyHit = (state: GameState, options: HitOptions): void => {
     attacker.attack.hitsLanded += 1;
     attacker.attack.hitCooldown = spec?.hitInterval ?? 0;
   }
-  state.hitStopFrames = HITSTOP_FRAMES;
+  state.hitStopFrames = hitStop;
 };
 
 // ----------------------------------------------------------------
@@ -690,7 +702,9 @@ const spawnProjectile = (
     onScreen: true,
     damage: spec.damage,
     chipDamage: spec.chipDamage,
-    knockback: spec.knockback
+    knockback: spec.knockback,
+    launch: spec.launch,
+    hitStop: spec.hitStop
   });
   state.events.push('projectile');
 };
@@ -761,6 +775,8 @@ const resolveAttacks = (
         damage: settings.damage,
         chipDamage: settings.chipDamage,
         knockback: settings.knockback,
+        launch: settings.launch,
+        hitStop: settings.hitStop,
         contactX,
         contactY,
         projectileHit: false
@@ -1008,7 +1024,11 @@ const updateFighter = (
       );
       fighter.hitstunElapsed += 1;
     }
-    fighter.hitstun -= 1;
+    // 空中では減らさない。打ち上げられた相手が滞空の途中で操作可能に戻ると、
+    // 浮いたまま切り返せてしまい対空技の意味が無くなる
+    if (fighter.grounded) {
+      fighter.hitstun -= 1;
+    }
     applyGravity(fighter);
     return;
   }
@@ -1094,6 +1114,8 @@ const updateProjectiles = (state: GameState): void => {
         damage: projectile.damage,
         chipDamage: projectile.chipDamage,
         knockback: projectile.knockback,
+        launch: projectile.launch,
+        hitStop: projectile.hitStop,
         contactX: projectile.x,
         contactY: projectile.y,
         projectileHit: true

@@ -28,3 +28,14 @@ export const getAnimationFrameIndex = (
   }
   return animation.sequence[step] ?? 0;
 };
+
+// そのコマの回転角（度）。同じ画像を角度違いで使い回す
+export const getAnimationRotation = (
+  animation: AnimationSpec,
+  elapsed: number
+): number => {
+  if (animation.rotationByStep === null) {
+    return 0;
+  }
+  return animation.rotationByStep[getAnimationStep(animation, elapsed)] ?? 0;
+};

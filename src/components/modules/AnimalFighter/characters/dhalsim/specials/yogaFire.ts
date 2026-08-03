@@ -29,6 +29,9 @@ export const YOGA_FIRE: SpecialMove = {
   // 128px なら1サイクルで142px詰められる（開始間合い340pxなら3発ぶん）。
   // 「歩ける距離の半分以下」をテストで固定しているので、上げるならそちらも見直すこと
   knockback: 110,
+  // 水平に伸びる炎なので打ち上げない
+  launch: 0,
+  hitStop: 6,
   // reach は最大値。実際の判定はコマごとに reachByStep から引く。
   // 炎は口の高さの帯だが、しゃがみ(66px)にも当たるよう下端を余らせる
   hitbox: { reach: 317, spread: 'forward', topOffset: 20, bottomInset: 40 },
@@ -56,6 +59,8 @@ export const YOGA_FIRE: SpecialMove = {
     frameCount: 4,
     interval: 6,
     sequence: [0, 0, 1, 2, 3, 2, 1, 0],
-    loop: false
+    loop: false,
+    rotationByStep: null,
+    airborneOnly: false
   }
 };
