@@ -20,7 +20,6 @@ import {
   getSpecialSpriteFrame,
   getSpecialSpriteSpec,
   GROUND_Y,
-  HIT_FLASH_FRAMES,
   isGuarding,
   PAUSE_MENU_ITEMS,
   SELECT_COLUMNS,
@@ -131,8 +130,6 @@ type DrawImageOptions = {
   // 度数・時計回り。アンカーから pivotY だけ上の点を軸に回す
   rotation?: number;
   pivotY?: number;
-  // 被弾時に白く飛ばす強さ（0〜1）
-  flash?: number;
 };
 
 const getLoadedImage = (
@@ -193,11 +190,6 @@ const drawImageAnchored = (
     ctx.translate(0, -pivotY);
     ctx.rotate((rotation * Math.PI) / 180);
     ctx.translate(0, pivotY);
-  }
-  // やられ絵が無いので、被弾のフィードバックは明度を飛ばして出す
-  const flash = options.flash ?? 0;
-  if (flash > 0) {
-    ctx.filter = `brightness(${String(1 + flash * 1.6)}) saturate(${String(1 - flash * 0.7)})`;
   }
   ctx.drawImage(image, -width * (options.anchorX ?? 0.5), -height, width, height);
   ctx.restore();
@@ -425,8 +417,6 @@ const drawFighter = (
     roundEnd: state.roundEnd,
     guarding
   });
-  // 被弾直後ほど強く光らせて、そのあと素に戻す
-  const flash = fighter.hitFlash / HIT_FLASH_FRAMES;
   // 専用アニメを優先するが KO ポーズには譲る（タイムアップで敗者が down にならないため）
   const specialFrame = pose === 'down' ? null : getSpecialSpriteFrame(fighter);
   const specialUrl =
@@ -445,7 +435,6 @@ const drawFighter = (
       anchorY: anchor + spec.offsetY,
       rotation: specialFrame.rotation,
       pivotY: spec.pivotY,
-      flash,
       flip: fighter.facing < 0
     });
     return;
@@ -456,7 +445,6 @@ const drawFighter = (
   drawImageAnchored(ctx, images, getSpriteUrl(fighter.id, pose), fighter.x, {
     ...sprite,
     anchorY,
-    flash,
     flip: fighter.facing < 0
   });
 

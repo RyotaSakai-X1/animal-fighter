@@ -55,8 +55,6 @@ export const HITSTUN_SLIDE_FRAMES = 3;
 export const HITSTUN_SLIDE_PER_FRAME = 6;
 export const HITSTUN_SLIDE =
   HITSTUN_SLIDE_FRAMES * HITSTUN_SLIDE_PER_FRAME;
-// 被弾した瞬間に白く光るフレーム数。やられ絵が無いので当たった手応えをこれで出す
-export const HIT_FLASH_FRAMES = 5;
 export const BACKGROUND_COUNT = 5;
 export const GROUND_SPEED = 3;
 // 空中横速度。滞空 ~43F × 2.5 ≒ 横107px 動けるので体幅 54px を余裕を持って飛び越えられる
@@ -104,8 +102,6 @@ export type Fighter = CharacterDefinition & {
   attack: AttackState | null;
   hitstun: number;
   hitstunElapsed: number;
-  // 被弾直後に白く光る残りフレーム
-  hitFlash: number;
   specialCooldown: number;
   // 溜めコマンドの状態。溜め技を持たないキャラでは常に null / 0
   chargeDirection: CommandDirection | null;
@@ -291,7 +287,6 @@ const createFighter = (id: CharacterId, isPlayer: boolean): Fighter => ({
   attack: null,
   hitstun: 0,
   hitstunElapsed: 0,
-  hitFlash: 0,
   specialCooldown: 0,
   chargeDirection: null,
   chargeFrames: 0,
@@ -319,7 +314,6 @@ const resetFighter = (
   attack: null,
   hitstun: 0,
   hitstunElapsed: 0,
-  hitFlash: 0,
   specialCooldown: 0,
   // 溜めはラウンドをまたいで持ち越さない
   chargeDirection: null,
@@ -668,7 +662,6 @@ const applyHit = (state: GameState, options: HitOptions): void => {
   } else {
     target.hitstun = 12;
     target.hitstunElapsed = 0;
-    target.hitFlash = HIT_FLASH_FRAMES;
     target.attack = null;
     target.blocking = false;
     // 対空技は相手を巻き上げる。既に浮いている相手にもう一度当たると
@@ -1006,9 +999,6 @@ const updateFighter = (
 ): void => {
   const { fighter, opponent, input } = options;
   fighter.blocking = false;
-  if (fighter.hitFlash > 0) {
-    fighter.hitFlash -= 1;
-  }
   if (fighter.specialCooldown > 0) {
     fighter.specialCooldown -= 1;
   }

@@ -18,7 +18,6 @@ import {
   getSpecialSpriteFrame,
   GROUND_SPEED,
   GROUND_Y,
-  HIT_FLASH_FRAMES,
   HITSTOP_FRAMES,
   HITSTUN_SLIDE,
   isGuarding,
@@ -59,7 +58,6 @@ const createFighter = (overrides: Partial<Fighter> = {}): Fighter => ({
   attack: null,
   hitstun: 0,
   hitstunElapsed: 0,
-  hitFlash: 0,
   specialCooldown: 0,
   chargeDirection: null,
   chargeFrames: 0,
@@ -1672,15 +1670,14 @@ describe('Animal Fighter somersault kick', () => {
     ).toBe('airDamage');
   });
 
-  test('flashes the target and holds a longer hitstop than a normal', () => {
+  test('holds a longer hitstop than a normal', () => {
     const fired = pressUp(holdDown(startGuileFight(), CHARGE_REQUIRED_FRAMES));
 
     let state = fired;
     while ((state.cpu?.hp ?? 0) === 100) {
       state = advanceGame(state, createInput());
     }
-    // 被弾の瞬間に白く光り、必殺技なので通常技より長く止まる
-    expect(state.cpu?.hitFlash).toBe(HIT_FLASH_FRAMES);
+    // 必殺技なので通常技より長く止めて、打ち上げの瞬間を見せる
     expect(state.hitStopFrames).toBeGreaterThan(HITSTOP_FRAMES);
   });
 
