@@ -897,12 +897,17 @@ export type MatchSummary = {
   screen: GameScreen;
   playerId: CharacterId | null;
   cpuId: CharacterId | null;
+  // 選択画面でカーソルが乗っているキャラ。対戦が始まる前はこちらを見せる
+  selectedId: CharacterId | null;
+  cpuSelectedId: CharacterId | null;
 };
 
 const EMPTY_MATCH: MatchSummary = {
   screen: 'title',
   playerId: null,
-  cpuId: null
+  cpuId: null,
+  selectedId: null,
+  cpuSelectedId: null
 };
 
 export const useAnimalFighter = () => {
@@ -933,15 +938,26 @@ export const useAnimalFighter = () => {
     let matchKey = `${EMPTY_MATCH.screen}||`;
 
     // 差分があるフレームだけ setState する（毎フレームだと 60fps で再描画される）
+    // 60fps で setState しないよう、値が変わったときだけ React へ渡す。
+    // 選択カーソルはキー入力でしか動かないので、キーに含めても再描画は増えない
     const syncMatchSummary = (state: GameState): void => {
       const playerId = state.player?.id ?? null;
       const cpuId = state.cpu?.id ?? null;
-      const key = `${state.screen}|${playerId ?? ''}|${cpuId ?? ''}`;
+      const selectedId = CHARACTER_DEFINITIONS[state.selectedIndex]?.id ?? null;
+      const cpuSelectedId =
+        CHARACTER_DEFINITIONS[state.cpuSelectedIndex]?.id ?? null;
+      const key = `${state.screen}|${playerId ?? ''}|${cpuId ?? ''}|${selectedId ?? ''}|${cpuSelectedId ?? ''}`;
       if (key === matchKey) {
         return;
       }
       matchKey = key;
-      setMatch({ screen: state.screen, playerId, cpuId });
+      setMatch({
+        screen: state.screen,
+        playerId,
+        cpuId,
+        selectedId,
+        cpuSelectedId
+      });
     };
 
     const updateAssetStatus = (): void => {

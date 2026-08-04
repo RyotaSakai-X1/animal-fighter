@@ -1,9 +1,15 @@
-// 技表の表示内容は CharacterSpec から組み立てている。その組み立てが崩れないことを固定する。
+// 技表と選択画面のステータスゲージは CharacterSpec から組み立てている。
+// その組み立てが崩れないことを固定する。
 
 import { renderToStaticMarkup } from 'react-dom/server';
 import { createElement } from 'react';
-import { MoveListPanel } from './AnimalFighter';
-import { CHARACTER_IDS, getCharacterSpec, getMoveList } from './characters';
+import { CharacterStatsPanel, MoveListPanel } from './AnimalFighter';
+import {
+  CHARACTER_IDS,
+  getCharacterSpec,
+  getCharacterStats,
+  getMoveList
+} from './characters';
 
 describe('move list', () => {
   test('lists punch, kick, and every special for each character', () => {
@@ -128,6 +134,97 @@ describe('move list', () => {
     expect(
       renderToStaticMarkup(
         createElement(MoveListPanel, { id: null, side: 'cpu' })
+      )
+    ).toBe('');
+  });
+});
+
+describe('character stats', () => {
+  test('reports the three axes with a real value alongside', () => {
+    for (const id of CHARACTER_IDS) {
+      const stats = getCharacterStats(id);
+      expect(stats.map((stat) => stat.key)).toEqual([
+        'power',
+        'reach',
+        'startup'
+      ]);
+      for (const stat of stats) {
+        // 相対値なので 0〜1 に収まる
+        expect(stat.value, `${id}/${stat.key}`).toBeGreaterThanOrEqual(0);
+        expect(stat.value, `${id}/${stat.key}`).toBeLessThanOrEqual(1);
+        // ゲージだけだと実際の数値が分からないので併記する
+        expect(stat.detail).toMatch(/\d/);
+        // ラベルだけで伝わらない軸は補足で埋める
+        expect(stat.hint.length, `${id}/${stat.key}`).toBeGreaterThan(0);
+      }
+    }
+  });
+
+  test('keeps fighting-game jargon out of the gauge labels', () => {
+    // 「発生」「持続」「硬直」は初見で意味が取れない。実際に指摘を受けたので固定する
+    const jargon = ['発生', '持続', '硬直', 'フレーム'];
+    for (const id of CHARACTER_IDS) {
+      for (const stat of getCharacterStats(id)) {
+        for (const word of jargon) {
+          expect(stat.label, `${id}/${stat.key}`).not.toContain(word);
+        }
+      }
+    }
+  });
+
+  test('puts every axis on the same "longer is stronger" scale', () => {
+    const valueOf = (id: 'zangief' | 'dhalsim', key: string): number =>
+      getCharacterStats(id).find((stat) => stat.key === key)?.value ?? -1;
+
+    // ザンギエフは威力最大・リーチ最小、ダルシムはその逆
+    expect(valueOf('zangief', 'power')).toBe(1);
+    expect(valueOf('dhalsim', 'power')).toBe(0);
+    expect(valueOf('dhalsim', 'reach')).toBe(1);
+    expect(valueOf('zangief', 'reach')).toBe(0);
+    // 発生は「小さいほど速い」を反転してあるので、遅いダルシムが 0
+    expect(valueOf('dhalsim', 'startup')).toBe(0);
+  });
+
+  test('normalizes against the current roster, not a fixed ceiling', () => {
+    // 固定の上限を書くとキャラ追加･調整でゲージが振り切れる。
+    // どの軸も必ず 0 と 1 のキャラが1体ずつ居るはず
+    for (const key of ['power', 'reach', 'startup']) {
+      const values = CHARACTER_IDS.map(
+        (id) => getCharacterStats(id).find((s) => s.key === key)?.value ?? -1
+      );
+      expect(Math.min(...values), key).toBe(0);
+      expect(Math.max(...values), key).toBe(1);
+    }
+  });
+
+  test('renders the gauges and the commands on the select panel', () => {
+    const markup = renderToStaticMarkup(
+      createElement(CharacterStatsPanel, { id: 'zangief', side: 'player' })
+    );
+
+    expect(markup).toContain('BURU-DOG ZANGIEF');
+    expect(markup).toContain('威力');
+    expect(markup).toContain('リーチ');
+    expect(markup).toContain('出の速さ');
+    // 威力最大なので振り切れる
+    expect(markup).toContain('width:100%');
+    // リーチ最小でも空にはしない（実際のリーチが 0 なわけではない）
+    expect(markup).not.toContain('width:0%');
+    // 各行に実数値を出す（バーだけだと絶対値が分からない）
+    expect(markup).toContain('>16<');
+    expect(markup).toContain('>68px<');
+    expect(markup).toContain('>5F<');
+    // 何基準の数値かを明記する
+    expect(markup).toContain('キック基準');
+    // 技のコマンドはチップで出す
+    expect(markup).toContain('>Z</kbd>');
+    expect(markup).toContain('aria-label="BURU-DOG ZANGIEF の性能"');
+  });
+
+  test('renders nothing until the cursor lands on a character', () => {
+    expect(
+      renderToStaticMarkup(
+        createElement(CharacterStatsPanel, { id: null, side: 'cpu' })
       )
     ).toBe('');
   });

@@ -22,6 +22,7 @@ import {
   HITSTUN_SLIDE,
   isGuarding,
   rectanglesOverlap,
+  SELECT_COLUMNS,
   SELECT_SLOT_COUNT,
   setAssetStatus,
   stepCpuIndex,
@@ -389,6 +390,24 @@ describe('Animal Fighter game logic', () => {
     expect(lowerRow.selectedIndex).toBe(6);
     expect(wrapped.selectedIndex).toBe(1);
     expect(upperRow.selectedIndex).toBe(6);
+  });
+
+  test('resolves the select cursor through the same order the grid draws', () => {
+    // 選択画面のパネルはカーソル位置を CHARACTER_DEFINITIONS で引いてキャラを決める。
+    // canvas の選択グリッドも同じ配列を並べているので、別の並び（CHARACTER_IDS など）
+    // で引くとパネルとカーソルが違うキャラを指す
+    const ready = setAssetStatus(createInitialGameState(), true, false);
+    const select = advanceGame(ready, createInput(['Enter']));
+    const second = advanceGame(select, createInput(['ArrowRight']));
+
+    expect(CHARACTER_DEFINITIONS[select.selectedIndex]?.id).toBe('ryu');
+    expect(CHARACTER_DEFINITIONS[second.selectedIndex]?.id).toBe('ken');
+    // 下の行へは +SELECT_COLUMNS。インデックス1 → 6 でダルシム
+    const lowerRow = advanceGame(second, createInput(['ArrowDown']));
+    expect(lowerRow.selectedIndex).toBe(1 + SELECT_COLUMNS);
+    expect(CHARACTER_DEFINITIONS[lowerRow.selectedIndex]?.id).toBe('dhalsim');
+    // グリッドの全スロットにキャラが居る（欠けるとパネルが空になる）
+    expect(CHARACTER_DEFINITIONS).toHaveLength(SELECT_SLOT_COUNT);
   });
 
   test('moves the CPU cursor vertically and blocks a mirror above or below', () => {

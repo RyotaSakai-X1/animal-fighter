@@ -126,3 +126,78 @@ export const getMoveList = (id: CharacterId): readonly MoveListEntry[] => {
     )
   ];
 };
+
+// ----------------------------------------------------------------
+// キャラ選択画面のステータスゲージ
+// ----------------------------------------------------------------
+
+// 選択画面で見せるキャラ差。値は全キャラ中の相対値（0〜1）で、
+// 実データから毎回計算するのでキャラを調整してもゲージが勝手に追従する。
+// 「強さ」のような単一の総合値は作らない（ゲーム内にその数値が無いので実態とずれる）
+export type CharacterStat = {
+  key: 'power' | 'reach' | 'startup';
+  // 格ゲー用語（発生・持続など）は使わない。初見で意味が取れる言葉にする
+  label: string;
+  // 0〜1。すべて「長いほうが強い」に揃えてある
+  value: number;
+  // 実際の数値。ゲージだけでは絶対値が分からないので併記する
+  detail: string;
+  // ラベルだけで伝わらない軸の補足（読み上げ・ツールチップ用）
+  hint: string;
+};
+
+// キック（各キャラの主力）を代表値に使う。パンチは全キャラ差が小さい
+const rawStats = (spec: CharacterSpec) => ({
+  power: spec.kick.damage,
+  reach: spec.kick.hitbox.reach,
+  // 発生は小さいほど速い。ゲージは長いほうを強くしたいので後で反転する
+  startup: spec.kick.startup
+});
+
+type RawStats = ReturnType<typeof rawStats>;
+
+// 全キャラの min/max を毎回舐めて正規化の基準にする。
+// 固定の上限を書くと、キャラを追加･調整したときにゲージが振り切れる
+const statRange = (key: keyof RawStats): { min: number; max: number } => {
+  const values = CHARACTER_SPEC_ORDER.map((spec) => rawStats(spec)[key]);
+  return { min: Math.min(...values), max: Math.max(...values) };
+};
+
+const normalize = (value: number, min: number, max: number): number =>
+  max === min ? 1 : (value - min) / (max - min);
+
+export const getCharacterStats = (
+  id: CharacterId
+): readonly CharacterStat[] => {
+  const raw = rawStats(getCharacterSpec(id));
+  const power = statRange('power');
+  const reach = statRange('reach');
+  const startup = statRange('startup');
+
+  // 数値はすべてキック基準。3軸そろって「バーが長いほうが有利」になる
+  return [
+    {
+      key: 'power',
+      label: '威力',
+      value: normalize(raw.power, power.min, power.max),
+      detail: String(raw.power),
+      hint: '当てたときに減る体力'
+    },
+    {
+      key: 'reach',
+      label: 'リーチ',
+      value: normalize(raw.reach, reach.min, reach.max),
+      detail: `${String(raw.reach)}px`,
+      hint: '届く距離'
+    },
+    {
+      key: 'startup',
+      // 「発生」は格ゲー用語で初見だと分からないので言い換える
+      label: '出の速さ',
+      // 反転して「長いゲージ＝速い」に揃える
+      value: 1 - normalize(raw.startup, startup.min, startup.max),
+      detail: `${String(raw.startup)}F`,
+      hint: 'ボタンを押してから攻撃が出るまで。短いほど先に当てられる'
+    }
+  ];
+};
