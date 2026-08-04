@@ -42,12 +42,17 @@ const CommandTokenView: FC<{ token: CommandToken }> = ({ token }) => {
 // 正規化は全キャラ中の相対値なので最弱は 0 になるが、実際の威力は 0 ではない
 const GAUGE_FLOOR = 0.1;
 
+// ラベル・実数値・バーを1行に。バーだけだと絶対値が分からないので数値も出す。
+// title に補足を入れて、用語の意味はホバーでも辿れるようにする
 const StatGauge: FC<{ stat: CharacterStat }> = ({ stat }) => (
-  <li className='flex items-center gap-2'>
-    <span className='w-9 shrink-0 text-[10px] text-slate-400'>
-      {stat.label}
-    </span>
-    <span className='h-1.5 flex-1 overflow-hidden rounded-full bg-slate-900'>
+  <li title={`${stat.label}: ${stat.hint}`}>
+    <div className='flex items-baseline justify-between gap-1'>
+      <span className='text-[10px] text-slate-400'>{stat.label}</span>
+      <span className='text-[10px] tabular-nums text-slate-500'>
+        {stat.detail}
+      </span>
+    </div>
+    <span className='mt-0.5 block h-1.5 overflow-hidden rounded-full bg-slate-900'>
       <span
         className='block h-full rounded-full bg-amber-300'
         style={{
@@ -93,14 +98,14 @@ export const CharacterStatsPanel: FC<PanelProps> = ({
         {spec.name}
       </p>
 
-      <ul className='space-y-1.5'>
+      <ul className='space-y-2'>
         {stats.map((stat) => (
           <StatGauge key={stat.key} stat={stat} />
         ))}
       </ul>
-      {/* ゲージは相対値なので、実数値を併記して誤解を防ぐ */}
+      {/* 数値が何基準か分からないと読めないので明記する */}
       <p className='mt-1.5 text-[10px] leading-relaxed text-slate-500'>
-        {stats.map((stat) => stat.detail).join(' / ')}
+        キック基準。バーが長いほど有利
       </p>
 
       <ul className='mt-3 space-y-1.5 border-t border-slate-700 pt-3'>

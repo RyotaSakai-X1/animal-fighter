@@ -136,11 +136,14 @@ export const getMoveList = (id: CharacterId): readonly MoveListEntry[] => {
 // 「強さ」のような単一の総合値は作らない（ゲーム内にその数値が無いので実態とずれる）
 export type CharacterStat = {
   key: 'power' | 'reach' | 'startup';
+  // 格ゲー用語（発生・持続など）は使わない。初見で意味が取れる言葉にする
   label: string;
   // 0〜1。すべて「長いほうが強い」に揃えてある
   value: number;
-  // ツールチップや読み上げ用の実値
+  // 実際の数値。ゲージだけでは絶対値が分からないので併記する
   detail: string;
+  // ラベルだけで伝わらない軸の補足（読み上げ・ツールチップ用）
+  hint: string;
 };
 
 // キック（各キャラの主力）を代表値に使う。パンチは全キャラ差が小さい
@@ -171,25 +174,30 @@ export const getCharacterStats = (
   const reach = statRange('reach');
   const startup = statRange('startup');
 
+  // 数値はすべてキック基準。3軸そろって「バーが長いほうが有利」になる
   return [
     {
       key: 'power',
       label: '威力',
       value: normalize(raw.power, power.min, power.max),
-      detail: `キック ${String(raw.power)}`
+      detail: String(raw.power),
+      hint: '当てたときに減る体力'
     },
     {
       key: 'reach',
       label: 'リーチ',
       value: normalize(raw.reach, reach.min, reach.max),
-      detail: `キック ${String(raw.reach)}px`
+      detail: `${String(raw.reach)}px`,
+      hint: '届く距離'
     },
     {
       key: 'startup',
-      label: '発生',
+      // 「発生」は格ゲー用語で初見だと分からないので言い換える
+      label: '出の速さ',
       // 反転して「長いゲージ＝速い」に揃える
       value: 1 - normalize(raw.startup, startup.min, startup.max),
-      detail: `キック ${String(raw.startup)}F`
+      detail: `${String(raw.startup)}F`,
+      hint: 'ボタンを押してから攻撃が出るまで。短いほど先に当てられる'
     }
   ];
 };

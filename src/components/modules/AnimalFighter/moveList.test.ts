@@ -154,6 +154,20 @@ describe('character stats', () => {
         expect(stat.value, `${id}/${stat.key}`).toBeLessThanOrEqual(1);
         // ゲージだけだと実際の数値が分からないので併記する
         expect(stat.detail).toMatch(/\d/);
+        // ラベルだけで伝わらない軸は補足で埋める
+        expect(stat.hint.length, `${id}/${stat.key}`).toBeGreaterThan(0);
+      }
+    }
+  });
+
+  test('keeps fighting-game jargon out of the gauge labels', () => {
+    // 「発生」「持続」「硬直」は初見で意味が取れない。実際に指摘を受けたので固定する
+    const jargon = ['発生', '持続', '硬直', 'フレーム'];
+    for (const id of CHARACTER_IDS) {
+      for (const stat of getCharacterStats(id)) {
+        for (const word of jargon) {
+          expect(stat.label, `${id}/${stat.key}`).not.toContain(word);
+        }
       }
     }
   });
@@ -191,13 +205,17 @@ describe('character stats', () => {
     expect(markup).toContain('BURU-DOG ZANGIEF');
     expect(markup).toContain('威力');
     expect(markup).toContain('リーチ');
-    expect(markup).toContain('発生');
+    expect(markup).toContain('出の速さ');
     // 威力最大なので振り切れる
     expect(markup).toContain('width:100%');
-    // リーチ最小でも空にはしない（実際の威力が 0 なわけではない）
+    // リーチ最小でも空にはしない（実際のリーチが 0 なわけではない）
     expect(markup).not.toContain('width:0%');
-    // 実数値の併記
-    expect(markup).toContain('キック 16');
+    // 各行に実数値を出す（バーだけだと絶対値が分からない）
+    expect(markup).toContain('>16<');
+    expect(markup).toContain('>68px<');
+    expect(markup).toContain('>5F<');
+    // 何基準の数値かを明記する
+    expect(markup).toContain('キック基準');
     // 技のコマンドはチップで出す
     expect(markup).toContain('>Z</kbd>');
     expect(markup).toContain('aria-label="BURU-DOG ZANGIEF の性能"');
